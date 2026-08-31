@@ -1,0 +1,73 @@
+# ==========================================
+# Build
+# ==========================================
+build*/
+cmake-build-*/
+bin/
+lib/
+
+# ==========================================
+# CMake
+# ==========================================
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+Testing/
+Makefile
+Makefile*
+cmake_install.cmake
+install_manifest.txt
+compile_commands.json
+qtcsettings.cmake
+
+# ==========================================
+# Qt Creator & VSCode & IDE etc
+# ==========================================
+*.user
+*.user.*
+*.pro.user*
+CMakeLists.txt.user*
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.idea/
+*.suo
+*.sln
+*.vcxproj.user
+
+# ==========================================
+# Compile & Binary
+# ==========================================
+*.o
+*.obj
+*.a
+*.so
+*.so.*
+*.dylib
+*.dll
+*.exe
+*.out
+*.app
+
+# Qt MOC/UIC/RCC auto generated files
+moc_*.cpp
+moc_*.h
+ui_*.h
+qrc_*.cpp
+*_pch.h.cpp
+*_resource.rc
+*.qm
+
+# ==========================================
+# System Cache
+# ==========================================
+.DS_Store
+Thumbs.db
+*~
+*.autosave
+.*.swp
+*.orig
+*.rej
+*.core

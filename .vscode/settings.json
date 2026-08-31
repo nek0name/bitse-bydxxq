@@ -1,0 +1,9 @@
+{
+    "clangd.arguments": [
+        "--completion-style=detailed",
+        "--header-insertion=never",
+        "--pch-storage=memory",
+    ],
+    "clangd.onConfigChanged": "prompt",
+    "C_Cpp.intelliSenseEngine": "disabled"
+}
