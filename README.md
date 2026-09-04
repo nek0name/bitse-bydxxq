@@ -1,11 +1,11 @@
-# BITSE-BYDXXQ
+# 电动汽车充电桩应用管理平台
 
 本仓库是北京理工大学「软件工程综合实践」小学期课程项目。
 
 ## 目录结构
 
 ```text
-bydxxq/
+charging-platform/
 ├── .editorconfig          # 编辑器风格配置
 ├── .clang-format          # C++ 代码格式化配置
 ├── .vscode/               # clangd 配置
@@ -14,6 +14,7 @@ bydxxq/
 ├── database/              # SQLite 建库与演示数据脚本
 │   ├── schema.sql         # 表、索引和视图
 │   └── seed.sql           # 开发/演示种子数据
+├── apps/                  # Qt 用户端与管理端
 ├── spec/                  # 需求与验收清单（for AI）
 │   └── TODO.md            # 待实现功能和测试用例
 ├── docs/                  # 关键设计与使用文档（for human）
@@ -25,8 +26,6 @@ bydxxq/
 │   ├── 需求规格说明书.md
 │   └── images/
 └── scripts/               # 环境与格式化脚本
-    ├── setup_env.sh
-    └── format-cpp.sh
 ```
 
 其中 reference 内的文件仅供参考，以 docs 和 spec 为准。
@@ -40,6 +39,22 @@ bydxxq/
 - Web：使用 Vite + Vue + SQLite 技术栈；包管理工具使用 npm，格式化工具使用 oxfmt + oxlint。
 
 - Python：包管理工具使用 uv。
+
+## 构建与运行 Qt 应用
+
+```bash
+cmake --preset debug
+cmake --build build/debug -j
+
+./build/debug/apps/user-app/charging-user
+./build/debug/apps/admin-app/charging-admin
+```
+
+默认同时构建两个应用。也可以在配置时使用 `BUILD_USER_APP` 或 `BUILD_ADMIN_APP` 开关单独构建，例如：
+
+```bash
+cmake -S . -B build/user-only -DBUILD_ADMIN_APP=OFF
+```
 
 ## 团队协作与 Git 规范
 

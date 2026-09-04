@@ -1,10 +1,16 @@
 cmake_minimum_required(VERSION 3.16)
-project(bydxxq LANGUAGES CXX)
+project(charging_platform LANGUAGES CXX)
 
 # Qt 6 推荐使用 C++17
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_AUTORCC ON)
+
+find_package(Qt6 6.2 REQUIRED COMPONENTS Widgets)
+
+option(BUILD_USER_APP "Build the charging user application" ON)
+option(BUILD_ADMIN_APP "Build the operations admin application" ON)
 
 # for clangd
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -27,5 +33,10 @@ add_custom_target(format-check
     COMMENT "Checking C/C++ source formatting"
 )
 
-# manage multi projects
-# add_subdirectory()
+if(BUILD_USER_APP)
+    add_subdirectory(apps/user-app)
+endif()
+
+if(BUILD_ADMIN_APP)
+    add_subdirectory(apps/admin-app)
+endif()

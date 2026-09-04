@@ -1,0 +1,12 @@
+<RCC>
+  <qresource prefix="/icons">
+    <file alias="house.svg">icons/house.svg</file>
+    <file alias="zap.svg">icons/zap.svg</file>
+    <file alias="user.svg">icons/user.svg</file>
+    <file alias="refresh-cw.svg">icons/refresh-cw.svg</file>
+    <file alias="search.svg">icons/search.svg</file>
+    <file alias="navigation.svg">icons/navigation.svg</file>
+    <file alias="chevron-down.svg">icons/chevron-down.svg</file>
+    <file alias="list.svg">icons/list.svg</file>
+  </qresource>
+</RCC>
