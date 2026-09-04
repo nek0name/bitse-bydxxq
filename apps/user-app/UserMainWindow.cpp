@@ -2,6 +2,11 @@
 
 #include <QButtonGroup>
 #include <QComboBox>
+#include <QCoreApplication>
+#include <QDir>
+#include <QFileInfo>
+#include <QSqlDatabase>
+#include <QSqlQuery>
 #include <QDesktopServices>
 #include <QDialog>
 #include <QDialogButtonBox>
@@ -32,6 +37,66 @@
 namespace {
 constexpr int kMargin = 12;
 constexpr int kSpacing = 8;
+
+struct StationRow {
+    QString name;
+    QString address;
+    QString region;
+    int idle = 0;
+    int total = 0;
+    double price = 0;
+};
+
+QSqlDatabase openDatabase() {
+    QString path = qEnvironmentVariable("CHARGING_DB_PATH");
+    if (path.isEmpty()) {
+        QDir dir(QCoreApplication::applicationDirPath());
+        const QStringList candidates = {
+            dir.filePath("../../../../database/charging_platform.db"),
+            dir.filePath("../../../database/charging_platform.db"),
+            QDir::current().filePath("database/charging_platform.db")};
+        for (const auto &candidate : candidates) {
+            if (QFileInfo::exists(candidate)) {
+                path = QFileInfo(candidate).canonicalFilePath();
+                break;
+            }
+        }
+    }
+    if (path.isEmpty()) return {};
+    const QString connectionName = "user-app-readonly";
+    if (QSqlDatabase::contains(connectionName))
+        return QSqlDatabase::database(connectionName);
+    auto db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
+    db.setDatabaseName(path);
+    if (!db.open()) return {};
+    QSqlQuery pragma(db);
+    pragma.exec("PRAGMA foreign_keys = ON");
+    pragma.exec("PRAGMA busy_timeout = 5000");
+    return db;
+}
+
+qint64 currentUserId() {
+    return qEnvironmentVariable("CHARGING_USER_ID", "1").toLongLong();
+}
+
+QList<StationRow> loadStations(const QSqlDatabase &db) {
+    QList<StationRow> rows;
+    if (!db.isOpen()) return rows;
+    QSqlQuery query(db);
+    query.prepare("SELECT v.name, v.address, COALESCE(v.region_code, ''), "
+                  "COALESCE(v.idle_charger_count, 0), COALESCE(v.charger_count, 0), "
+                  "COALESCE(t.electricity_price + t.service_price, 0) "
+                  "FROM v_station_availability v LEFT JOIN tariffs t "
+                  "ON t.station_id = v.station_id AND t.charger_type = 'all' "
+                  "ORDER BY v.station_id");
+    if (!query.exec()) return rows;
+    while (query.next()) {
+        rows.append({query.value(0).toString(), query.value(1).toString(),
+                     query.value(2).toString(), query.value(3).toInt(),
+                     query.value(4).toInt(), query.value(5).toDouble()});
+    }
+    return rows;
+}
 
 class ClickableFrame final : public QFrame {
   public:
@@ -189,7 +254,7 @@ QToolButton *createQuickAction(const QString &text, const QString &iconPath) {
     return button;
 }
 
-QWidget *createFindStationPage() {
+QWidget *createFindStationPage(const QList<StationRow> &stations) {
     auto *page = new QWidget;
     page->setObjectName("page");
     auto *layout = new QVBoxLayout(page);
@@ -274,12 +339,15 @@ QWidget *createFindStationPage() {
     auto *stationLayout = new QVBoxLayout(stationContent);
     stationLayout->setContentsMargins(0, 0, 0, 0);
     stationLayout->setSpacing(6);
-    stationLayout->addWidget(createStationCard(
-      "中关村充电站", "1.2 km", "空闲 8 / 12", "快充/慢充 · ¥1.20/度"));
-    stationLayout->addWidget(createStationCard(
-      "学院路充电站", "2.8 km", "空闲 4 / 10", "快充 · ¥1.15/度"));
-    stationLayout->addWidget(createStationCard(
-      "五道口充电站", "3.5 km", "空闲 6 / 16", "快充/慢充 · ¥1.30/度"));
+    if (stations.isEmpty()) {
+        stationLayout->addWidget(new QLabel("暂无电站数据，请检查数据库连接"));
+    } else {
+        for (const auto &station : stations) {
+            const QString availability = QString("空闲 %1 / %2").arg(station.idle).arg(station.total);
+            const QString detail = QString("%1 · ¥%2/度").arg(station.region.isEmpty() ? station.address : station.region).arg(station.price, 0, 'f', 2);
+            stationLayout->addWidget(createStationCard(station.name, "", availability, detail));
+        }
+    }
     stationLayout->addStretch(1);
     auto *stationScroll = new QScrollArea;
     stationScroll->setWidgetResizable(true);
@@ -295,7 +363,7 @@ QWidget *createFindStationPage() {
     return page;
 }
 
-QWidget *createOrdersPage() {
+QWidget *createOrdersPage(const QSqlDatabase &db) {
     auto *page = new QWidget;
     auto *layout = new QVBoxLayout(page);
     layout->setContentsMargins(kMargin, kMargin, kMargin, kMargin);
@@ -309,13 +377,23 @@ QWidget *createOrdersPage() {
     tabs->setExpanding(true);
 
     auto *orders = new QListWidget;
-    const auto populateOrders = [orders](int category) {
+    const auto populateOrders = [orders, db](int category) {
         orders->clear();
-        if (category == 0 || category == 2) {
-            orders->addItem("中关村充电站 · A01\n已完成 · 32.6 kWh · ¥39.12");
-        }
-        if (category == 0 || category == 3) {
-            orders->addItem("学院路充电站 · B03\n已取消 · 未产生费用");
+        if (!db.isOpen()) { orders->addItem("数据库未连接"); return; }
+        QSqlQuery query(db);
+        QString condition;
+        if (category == 1) condition = " AND o.status = 'pending_payment'";
+        if (category == 2) condition = " AND o.status = 'paid'";
+        if (category == 3) condition = " AND o.status = 'cancelled'";
+        query.exec("SELECT s.name, c.charger_code, o.status, o.energy_kwh, o.paid_amount "
+                   "FROM orders o JOIN stations s ON s.id=o.station_id JOIN chargers c ON c.id=o.charger_id "
+                   "WHERE o.user_id=" + QString::number(currentUserId()) + condition + " ORDER BY o.created_at DESC LIMIT 30");
+        while (query.next()) {
+            const QString status = query.value(2).toString();
+            const QString text = QString("%1 · %2\\n%3 · %4 kWh · ¥%5")
+                .arg(query.value(0).toString(), query.value(1).toString(), status,
+                     query.value(3).toString(), query.value(4).toString());
+            orders->addItem(text);
         }
         if (orders->count() == 0) {
             orders->addItem("当前分类暂无订单");
@@ -330,7 +408,7 @@ QWidget *createOrdersPage() {
     return page;
 }
 
-QWidget *createProfilePage() {
+QWidget *createProfilePage(const QSqlDatabase &db) {
     auto *content = new QWidget;
     content->setObjectName("page");
     auto *layout = new QVBoxLayout(content);
@@ -338,15 +416,29 @@ QWidget *createProfilePage() {
     layout->setSpacing(kSpacing);
     layout->addWidget(createHeading("个人中心"));
 
+    QString nickname = "用户";
+    QString phone = "未登录";
+    QString status = "未知";
+    double balance = 0;
+    if (db.isOpen()) {
+        QSqlQuery query(db);
+        query.prepare("SELECT nickname, phone, status, wallet_balance FROM users WHERE id = :id");
+        query.bindValue(":id", currentUserId());
+        query.exec();
+        if (query.next()) {
+            nickname = query.value(0).toString(); phone = query.value(1).toString();
+            status = query.value(2).toString(); balance = query.value(3).toDouble();
+        }
+    }
     auto *account = new QGroupBox("账户信息");
     account->setObjectName("sectionCard");
     auto *accountLayout = new QGridLayout(account);
     accountLayout->addWidget(new QLabel("昵称"), 0, 0);
-    accountLayout->addWidget(new QLabel("体验用户"), 0, 1);
+    accountLayout->addWidget(new QLabel(nickname), 0, 1);
     accountLayout->addWidget(new QLabel("手机号"), 1, 0);
-    accountLayout->addWidget(new QLabel("138****0000"), 1, 1);
+    accountLayout->addWidget(new QLabel(phone), 1, 1);
     accountLayout->addWidget(new QLabel("账户状态"), 2, 0);
-    accountLayout->addWidget(new QLabel("正常"), 2, 1);
+    accountLayout->addWidget(new QLabel(status), 2, 1);
     accountLayout->setColumnStretch(1, 1);
 
     auto *summary = new QGridLayout;
@@ -362,7 +454,7 @@ QWidget *createProfilePage() {
     auto *wallet = new QGroupBox("我的钱包");
     wallet->setObjectName("sectionCard");
     auto *walletLayout = new QHBoxLayout(wallet);
-    walletLayout->addWidget(new QLabel("余额：¥ 0.00"), 1);
+    walletLayout->addWidget(new QLabel(QString("余额：¥ %1").arg(balance, 0, 'f', 2)), 1);
     walletLayout->addWidget(new QPushButton("充值"));
 
     auto *actions = new QGroupBox("常用功能");
@@ -388,7 +480,7 @@ QWidget *createProfilePage() {
 } // namespace
 
 UserMainWindow::UserMainWindow(QWidget *parent) : QMainWindow(parent) {
-    setWindowTitle("充电用户端");
+    setWindowTitle("智充出行");
     resize(420, 720);
     setMinimumSize(320, 500);
 
@@ -397,9 +489,10 @@ UserMainWindow::UserMainWindow(QWidget *parent) : QMainWindow(parent) {
     rootLayout->setContentsMargins(0, 0, 0, 0);
     rootLayout->setSpacing(0);
     pages_ = new QStackedWidget;
-    pages_->addWidget(createFindStationPage());
-    pages_->addWidget(createOrdersPage());
-    pages_->addWidget(createProfilePage());
+    const auto db = openDatabase();
+    pages_->addWidget(createFindStationPage(loadStations(db)));
+    pages_->addWidget(createOrdersPage(db));
+    pages_->addWidget(createProfilePage(db));
 
     auto *navigation = new QFrame;
     navigation->setObjectName("bottomNav");
