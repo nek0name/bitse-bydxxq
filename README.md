@@ -27,7 +27,9 @@ charging-platform/
 │   ├── 东软电动汽车充电桩应用管理平台项目要求书.md
 │   ├── 需求规格说明书.md
 │   └── images/
-└── scripts/               # 环境与格式化脚本
+├── scripts/               # 环境与格式化脚本
+│   ├── setup_env.sh
+│   └── format-cpp.sh
 ```
 
 其中 reference 内的文件仅供参考，以 docs 和 spec 为准。
