@@ -2,32 +2,37 @@
 
 #include <QApplication>
 #include <QCoreApplication>
+#include <QDateTime>
 #include <QDialog>
 #include <QDialogButtonBox>
+#include <QDir>
+#include <QFileInfo>
 #include <QFont>
 #include <QLabel>
 #include <QLineEdit>
-#include <QMessageBox>
-#include <QPushButton>
 #include <QLinearGradient>
+#include <QMessageBox>
 #include <QPalette>
+#include <QPushButton>
 #include <QSqlDatabase>
 #include <QSqlQuery>
 #include <QTimer>
-#include <QDateTime>
 #include <QVBoxLayout>
-#include <QDir>
-#include <QFileInfo>
 
 namespace {
 QSqlDatabase loginDatabase() {
     QString path = qEnvironmentVariable("CHARGING_DB_PATH");
     if (path.isEmpty()) {
         QDir dir(QCoreApplication::applicationDirPath());
-        const QStringList candidates = {dir.filePath("../../../../database/charging_platform.db"),
-                                        dir.filePath("../../../database/charging_platform.db"),
-                                        QDir::current().filePath("database/charging_platform.db")};
-        for (const auto &candidate : candidates) if (QFileInfo::exists(candidate)) { path = QFileInfo(candidate).canonicalFilePath(); break; }
+        const QStringList candidates = {
+          dir.filePath("../../../../database/charging_platform.db"),
+          dir.filePath("../../../database/charging_platform.db"),
+          QDir::current().filePath("database/charging_platform.db")};
+        for (const auto &candidate : candidates)
+            if (QFileInfo::exists(candidate)) {
+                path = QFileInfo(candidate).canonicalFilePath();
+                break;
+            }
     }
     if (path.isEmpty()) return {};
     auto db = QSqlDatabase::addDatabase("QSQLITE", "login");
@@ -38,7 +43,10 @@ QSqlDatabase loginDatabase() {
 
 bool login(QWidget *parent, qint64 &userId) {
     const auto db = loginDatabase();
-    if (!db.isOpen()) { QMessageBox::critical(parent, "登录失败", "无法连接数据库"); return false; }
+    if (!db.isOpen()) {
+        QMessageBox::critical(parent, "登录失败", "无法连接数据库");
+        return false;
+    }
     QDialog dialog(parent);
     dialog.setWindowTitle("智充出行");
     dialog.resize(420, 720);
@@ -84,7 +92,10 @@ bool login(QWidget *parent, qint64 &userId) {
     layout->setContentsMargins(28, 54, 28, 28);
     layout->setSpacing(14);
     auto *brand = new QLabel("智充出行");
-    QFont brandFont = brand->font(); brandFont.setPointSize(24); brandFont.setBold(true); brand->setFont(brandFont);
+    QFont brandFont = brand->font();
+    brandFont.setPointSize(24);
+    brandFont.setBold(true);
+    brand->setFont(brandFont);
     brand->setAlignment(Qt::AlignCenter);
     layout->addWidget(brand);
     auto *welcome = new QLabel("登录后查找附近充电站");
@@ -102,7 +113,8 @@ bool login(QWidget *parent, qint64 &userId) {
     phone->setPalette(phonePalette);
     phone->setInputMethodHints(Qt::ImhDigitsOnly);
     layout->addWidget(phone);
-    // Apply after the style sheet polish pass; otherwise Qt may restore its default placeholder color.
+    // Apply after the style sheet polish pass; otherwise Qt may restore its
+    // default placeholder color.
     QTimer::singleShot(0, phone, [phone] {
         auto palette = phone->palette();
         palette.setColor(QPalette::PlaceholderText, QColor("#c3cbd1"));
@@ -110,7 +122,8 @@ bool login(QWidget *parent, qint64 &userId) {
     });
     layout->addStretch(1);
     auto *errorLabel = new QLabel;
-    errorLabel->setStyleSheet("color: #c45151; font-size: 13px; padding-left: 4px;");
+    errorLabel->setStyleSheet(
+      "color: #c45151; font-size: 13px; padding-left: 4px;");
     errorLabel->setVisible(false);
     layout->insertWidget(layout->count() - 1, errorLabel);
     auto *loginButton = new QPushButton("登录");
@@ -123,40 +136,73 @@ bool login(QWidget *parent, qint64 &userId) {
     layout->addSpacing(8);
     QObject::connect(registerButton, &QPushButton::clicked, &dialog, [&] {
         const QString newPhone = phone->text().trimmed();
-        if (newPhone.size() != 11) { errorLabel->setText("请输入 11 位手机号后再注册"); errorLabel->setVisible(true); return; }
+        if (newPhone.size() != 11) {
+            errorLabel->setText("请输入 11 位手机号后再注册");
+            errorLabel->setVisible(true);
+            return;
+        }
         QSqlQuery exists(db);
         exists.prepare("SELECT id FROM users WHERE phone = :phone");
         exists.bindValue(":phone", newPhone);
-        if (!exists.exec()) { errorLabel->setText("注册失败，请稍后重试"); errorLabel->setVisible(true); return; }
-        if (exists.next()) { errorLabel->setText("该手机号已注册，请直接登录"); errorLabel->setVisible(true); return; }
-        const QString now = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+        if (!exists.exec()) {
+            errorLabel->setText("注册失败，请稍后重试");
+            errorLabel->setVisible(true);
+            return;
+        }
+        if (exists.next()) {
+            errorLabel->setText("该手机号已注册，请直接登录");
+            errorLabel->setVisible(true);
+            return;
+        }
+        const QString now = QDateTime::currentDateTimeUtc().toString(
+          Qt::ISODate);
         QSqlQuery insert(db);
-        insert.prepare("INSERT INTO users (phone, nickname, wallet_balance, status, created_at, updated_at) "
-                       "VALUES (:phone, :nickname, 0, 'active', :created, :updated)");
+        insert.prepare(
+          "INSERT INTO users (phone, nickname, wallet_balance, status, "
+          "created_at, updated_at) "
+          "VALUES (:phone, :nickname, 0, 'active', :created, :updated)");
         insert.bindValue(":phone", newPhone);
         insert.bindValue(":nickname", "用户" + newPhone.right(4));
         insert.bindValue(":created", now);
         insert.bindValue(":updated", now);
-        if (!insert.exec()) { errorLabel->setText("注册失败，请稍后重试"); errorLabel->setVisible(true); return; }
+        if (!insert.exec()) {
+            errorLabel->setText("注册失败，请稍后重试");
+            errorLabel->setVisible(true);
+            return;
+        }
         userId = insert.lastInsertId().toLongLong();
         dialog.accept();
     });
     QObject::connect(loginButton, &QPushButton::clicked, &dialog, [&] {
-        auto showError = [&](const QString &message) { errorLabel->setText(message); errorLabel->setVisible(true); };
-        if (phone->text().trimmed().size() != 11) { showError("请输入 11 位手机号"); return; }
+        auto showError = [&](const QString &message) {
+            errorLabel->setText(message);
+            errorLabel->setVisible(true);
+        };
+        if (phone->text().trimmed().size() != 11) {
+            showError("请输入 11 位手机号");
+            return;
+        }
         QSqlQuery query(db);
         query.prepare("SELECT id, status FROM users WHERE phone = :phone");
         query.bindValue(":phone", phone->text().trimmed());
-        if (!query.exec() || !query.next()) { showError("该手机号未注册"); return; }
+        if (!query.exec() || !query.next()) {
+            showError("该手机号未注册");
+            return;
+        }
         const auto status = query.value(1).toString();
-        if (status != "active") { showError(status == "frozen" ? "账户已冻结，暂时无法登录" : "账户已禁用，暂时无法登录"); return; }
+        if (status != "active") {
+            showError(status == "frozen" ? "账户已冻结，暂时无法登录"
+                                         : "账户已禁用，暂时无法登录");
+            return;
+        }
         userId = query.value(0).toLongLong();
         dialog.accept();
     });
     return dialog.exec() == QDialog::Accepted;
 }
 
-void showLoginAlert(QWidget *parent, const QString &title, const QString &message) {
+void showLoginAlert(QWidget *parent, const QString &title,
+                    const QString &message) {
     QDialog alert(parent);
     alert.setWindowTitle(title);
     alert.setMinimumWidth(300);
@@ -183,7 +229,7 @@ void showLoginAlert(QWidget *parent, const QString &title, const QString &messag
     QObject::connect(ok, &QPushButton::clicked, &alert, &QDialog::accept);
     alert.exec();
 }
-}
+} // namespace
 
 int main(int argc, char *argv[]) {
     QApplication application(argc, argv);
