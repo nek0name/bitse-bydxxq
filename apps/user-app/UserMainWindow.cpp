@@ -3,14 +3,13 @@
 #include <QButtonGroup>
 #include <QComboBox>
 #include <QCoreApplication>
-#include <QDir>
-#include <QFileInfo>
-#include <QSqlDatabase>
-#include <QSqlQuery>
+#include <QDateTime>
 #include <QDesktopServices>
 #include <QDialog>
 #include <QDialogButtonBox>
+#include <QDir>
 #include <QEvent>
+#include <QFileInfo>
 #include <QFrame>
 #include <QGridLayout>
 #include <QGroupBox>
@@ -25,6 +24,8 @@
 #include <QPushButton>
 #include <QScrollArea>
 #include <QSizePolicy>
+#include <QSqlDatabase>
+#include <QSqlQuery>
 #include <QStackedWidget>
 #include <QStringList>
 #include <QTabBar>
@@ -52,9 +53,9 @@ QSqlDatabase openDatabase() {
     if (path.isEmpty()) {
         QDir dir(QCoreApplication::applicationDirPath());
         const QStringList candidates = {
-            dir.filePath("../../../../database/charging_platform.db"),
-            dir.filePath("../../../database/charging_platform.db"),
-            QDir::current().filePath("database/charging_platform.db")};
+          dir.filePath("../../../../database/charging_platform.db"),
+          dir.filePath("../../../database/charging_platform.db"),
+          QDir::current().filePath("database/charging_platform.db")};
         for (const auto &candidate : candidates) {
             if (QFileInfo::exists(candidate)) {
                 path = QFileInfo(candidate).canonicalFilePath();
@@ -83,12 +84,13 @@ QList<StationRow> loadStations(const QSqlDatabase &db) {
     QList<StationRow> rows;
     if (!db.isOpen()) return rows;
     QSqlQuery query(db);
-    query.prepare("SELECT v.name, v.address, COALESCE(v.region_code, ''), "
-                  "COALESCE(v.idle_charger_count, 0), COALESCE(v.charger_count, 0), "
-                  "COALESCE(t.electricity_price + t.service_price, 0) "
-                  "FROM v_station_availability v LEFT JOIN tariffs t "
-                  "ON t.station_id = v.station_id AND t.charger_type = 'all' "
-                  "ORDER BY v.station_id");
+    query.prepare(
+      "SELECT v.name, v.address, COALESCE(v.region_code, ''), "
+      "COALESCE(v.idle_charger_count, 0), COALESCE(v.charger_count, 0), "
+      "COALESCE(t.electricity_price + t.service_price, 0) "
+      "FROM v_station_availability v LEFT JOIN tariffs t "
+      "ON t.station_id = v.station_id AND t.charger_type = 'all' "
+      "ORDER BY v.station_id");
     if (!query.exec()) return rows;
     while (query.next()) {
         rows.append({query.value(0).toString(), query.value(1).toString(),
@@ -156,8 +158,8 @@ QFrame *createSummaryItem(const QString &value, const QString &label) {
     QFont descriptionFont = descriptionLabel->font();
     descriptionFont.setPointSize(qMax(8, descriptionFont.pointSize() - 1));
     descriptionLabel->setFont(descriptionFont);
-    layout->addWidget(valueLabel, 0, Qt::AlignLeft);
-    layout->addWidget(descriptionLabel, 0, Qt::AlignLeft);
+    layout->addWidget(valueLabel, 0, Qt::AlignCenter);
+    layout->addWidget(descriptionLabel, 0, Qt::AlignCenter);
     return item;
 }
 
@@ -343,9 +345,16 @@ QWidget *createFindStationPage(const QList<StationRow> &stations) {
         stationLayout->addWidget(new QLabel("暂无电站数据，请检查数据库连接"));
     } else {
         for (const auto &station : stations) {
-            const QString availability = QString("空闲 %1 / %2").arg(station.idle).arg(station.total);
-            const QString detail = QString("%1 · ¥%2/度").arg(station.region.isEmpty() ? station.address : station.region).arg(station.price, 0, 'f', 2);
-            stationLayout->addWidget(createStationCard(station.name, "", availability, detail));
+            const QString availability = QString("空闲 %1 / %2")
+                                           .arg(station.idle)
+                                           .arg(station.total);
+            const QString detail = QString("%1 · ¥%2/度")
+                                     .arg(station.region.isEmpty()
+                                            ? station.address
+                                            : station.region)
+                                     .arg(station.price, 0, 'f', 2);
+            stationLayout->addWidget(
+              createStationCard(station.name, "", availability, detail));
         }
     }
     stationLayout->addStretch(1);
@@ -365,6 +374,46 @@ QWidget *createFindStationPage(const QList<StationRow> &stations) {
 
 QWidget *createOrdersPage(const QSqlDatabase &db) {
     auto *page = new QWidget;
+    page->setObjectName("ordersPage");
+    page->setStyleSheet(R"QSS(
+        QWidget#ordersPage { background: #f7fafc; }
+        QTabBar { background: transparent; }
+        QTabBar::tab {
+            color: #84929d;
+            min-height: 38px;
+            padding: 0 14px;
+            border: none;
+        }
+        QTabBar::tab:selected {
+            color: #2f7fae;
+            font-weight: 600;
+            border-bottom: 2px solid #2f7fae;
+        }
+        QListWidget {
+            background: transparent;
+            border: none;
+            outline: none;
+        }
+        QFrame#orderCard {
+            background: #ffffff;
+            border: 1px solid #e3ebf0;
+            border-radius: 12px;
+        }
+        QLabel#orderStation { color: #17212b; font-size: 15px; font-weight: 600; }
+        QLabel#orderStatus { color: #2f7fae; font-size: 13px; font-weight: 600; }
+        QLabel#orderMeta { color: #526473; font-size: 13px; }
+        QLabel#orderAmount { color: #17212b; font-size: 18px; font-weight: 700; }
+        QLabel#orderTime { color: #8b98a3; font-size: 12px; }
+        QPushButton#orderAction {
+            min-height: 30px;
+            padding: 0 14px;
+            border: 1px solid #b8cbd5;
+            border-radius: 15px;
+            background: #ffffff;
+            color: #526473;
+        }
+        QPushButton#orderAction:hover { background: #f0f7fa; border-color: #78abc1; }
+    )QSS");
     auto *layout = new QVBoxLayout(page);
     layout->setContentsMargins(kMargin, kMargin, kMargin, kMargin);
     layout->setSpacing(kSpacing);
@@ -377,26 +426,87 @@ QWidget *createOrdersPage(const QSqlDatabase &db) {
     tabs->setExpanding(true);
 
     auto *orders = new QListWidget;
+    orders->setSelectionMode(QAbstractItemView::NoSelection);
+    orders->setSpacing(8);
     const auto populateOrders = [orders, db](int category) {
         orders->clear();
-        if (!db.isOpen()) { orders->addItem("数据库未连接"); return; }
+        if (!db.isOpen()) {
+            orders->addItem("数据库未连接");
+            return;
+        }
         QSqlQuery query(db);
         QString condition;
         if (category == 1) condition = " AND o.status = 'pending_payment'";
         if (category == 2) condition = " AND o.status = 'paid'";
         if (category == 3) condition = " AND o.status = 'cancelled'";
-        query.exec("SELECT s.name, c.charger_code, o.status, o.energy_kwh, o.paid_amount "
-                   "FROM orders o JOIN stations s ON s.id=o.station_id JOIN chargers c ON c.id=o.charger_id "
-                   "WHERE o.user_id=" + QString::number(currentUserId()) + condition + " ORDER BY o.created_at DESC LIMIT 30");
+        query.exec("SELECT s.name, c.charger_code, o.status, o.energy_kwh, "
+                   "o.paid_amount, o.created_at "
+                   "FROM orders o JOIN stations s ON s.id=o.station_id JOIN "
+                   "chargers c ON c.id=o.charger_id "
+                   "WHERE o.user_id="
+                   + QString::number(currentUserId()) + condition
+                   + " ORDER BY o.created_at DESC LIMIT 30");
         while (query.next()) {
             const QString status = query.value(2).toString();
-            const QString text = QString("%1 · %2\\n%3 · %4 kWh · ¥%5")
-                .arg(query.value(0).toString(), query.value(1).toString(), status,
-                     query.value(3).toString(), query.value(4).toString());
-            orders->addItem(text);
+            const QMap<QString, QString> statusLabels{
+              {"pending_payment", "待支付"},
+              {"paid", "已完成"},
+              {"payment_failed", "支付失败"},
+              {"cancelled", "已取消"},
+              {"refunded", "已退款"}};
+            const QString displayStatus = statusLabels.value(status, status);
+            const QString createdAt = query.value(5).toString();
+            const QDateTime orderTime = QDateTime::fromString(createdAt,
+                                                              Qt::ISODate);
+            const QString displayTime = orderTime.isValid()
+                                        ? orderTime.toString("yyyy.MM.dd HH:mm")
+                                        : createdAt;
+
+            auto *item = new QListWidgetItem;
+            auto *card = new QFrame;
+            card->setObjectName("orderCard");
+            auto *cardLayout = new QVBoxLayout(card);
+            cardLayout->setContentsMargins(14, 12, 14, 12);
+            cardLayout->setSpacing(7);
+
+            auto *header = new QHBoxLayout;
+            auto *stationLabel = new QLabel(query.value(0).toString());
+            stationLabel->setObjectName("orderStation");
+            header->addWidget(stationLabel, 1);
+            auto *statusLabel = new QLabel(displayStatus);
+            statusLabel->setObjectName("orderStatus");
+            header->addWidget(statusLabel, 0, Qt::AlignTop);
+
+            auto *summary = new QHBoxLayout;
+            auto *metaLabel = new QLabel(
+              QString("%1 · %2 kWh")
+                .arg(query.value(1).toString(), query.value(3).toString()));
+            metaLabel->setObjectName("orderMeta");
+            summary->addWidget(metaLabel, 1);
+            auto *amountLabel = new QLabel(
+              QString("¥%1").arg(query.value(4).toDouble(), 0, 'f', 2));
+            amountLabel->setObjectName("orderAmount");
+            summary->addWidget(amountLabel, 0, Qt::AlignVCenter);
+
+            auto *footer = new QHBoxLayout;
+            auto *timeLabel = new QLabel("下单时间  " + displayTime);
+            timeLabel->setObjectName("orderTime");
+            footer->addWidget(timeLabel, 1);
+            auto *detailsButton = new QPushButton("查看详情");
+            detailsButton->setObjectName("orderAction");
+            footer->addWidget(detailsButton);
+
+            cardLayout->addLayout(header);
+            cardLayout->addLayout(summary);
+            cardLayout->addLayout(footer);
+            orders->addItem(item);
+            orders->setItemWidget(item, card);
+            item->setSizeHint(card->sizeHint());
         }
         if (orders->count() == 0) {
-            orders->addItem("当前分类暂无订单");
+            auto *emptyItem = new QListWidgetItem("当前分类暂无订单");
+            emptyItem->setFlags(Qt::NoItemFlags);
+            orders->addItem(emptyItem);
         }
     };
     QObject::connect(tabs, &QTabBar::currentChanged, orders, populateOrders);
@@ -411,35 +521,82 @@ QWidget *createOrdersPage(const QSqlDatabase &db) {
 QWidget *createProfilePage(const QSqlDatabase &db) {
     auto *content = new QWidget;
     content->setObjectName("page");
+    content->setStyleSheet(R"QSS(
+        QWidget#page { background: #f7fafc; }
+        QLabel#heading { color: #17212b; }
+        QGroupBox#sectionCard {
+            background: rgba(255, 255, 255, 235);
+            border: 1px solid #e3ebf0;
+            border-radius: 12px;
+            margin-top: 8px;
+            padding: 16px 12px 12px 12px;
+        }
+        QGroupBox#sectionCard::title {
+            subcontrol-origin: margin;
+            left: 12px;
+            padding: 0 6px;
+            color: #526473;
+            font-weight: 600;
+        }
+        QPushButton {
+            min-height: 44px;
+            border-radius: 10px;
+            border: 1px solid #d8e3ea;
+            background: #ffffff;
+            color: #2f7fae;
+            font-size: 14px;
+        }
+        QPushButton:pressed { background: #edf5f9; }
+    )QSS");
     auto *layout = new QVBoxLayout(content);
     layout->setContentsMargins(kMargin, kMargin, kMargin, kMargin);
-    layout->setSpacing(kSpacing);
-    layout->addWidget(createHeading("个人中心"));
-
+    layout->setSpacing(14);
     QString nickname = "用户";
     QString phone = "未登录";
     QString status = "未知";
     double balance = 0;
     if (db.isOpen()) {
         QSqlQuery query(db);
-        query.prepare("SELECT nickname, phone, status, wallet_balance FROM users WHERE id = :id");
+        query.prepare("SELECT nickname, phone, status, wallet_balance FROM "
+                      "users WHERE id = :id");
         query.bindValue(":id", currentUserId());
         query.exec();
         if (query.next()) {
-            nickname = query.value(0).toString(); phone = query.value(1).toString();
-            status = query.value(2).toString(); balance = query.value(3).toDouble();
+            nickname = query.value(0).toString();
+            phone = query.value(1).toString();
+            status = query.value(2).toString();
+            balance = query.value(3).toDouble();
         }
     }
-    auto *account = new QGroupBox("账户信息");
+    auto *account = new QGroupBox;
     account->setObjectName("sectionCard");
-    auto *accountLayout = new QGridLayout(account);
-    accountLayout->addWidget(new QLabel("昵称"), 0, 0);
-    accountLayout->addWidget(new QLabel(nickname), 0, 1);
-    accountLayout->addWidget(new QLabel("手机号"), 1, 0);
-    accountLayout->addWidget(new QLabel(phone), 1, 1);
-    accountLayout->addWidget(new QLabel("账户状态"), 2, 0);
-    accountLayout->addWidget(new QLabel(status), 2, 1);
-    accountLayout->setColumnStretch(1, 1);
+    account->setMinimumHeight(96);
+    auto *accountLayout = new QHBoxLayout(account);
+    accountLayout->setContentsMargins(54, 8, 12, 8);
+    accountLayout->setSpacing(64);
+    auto *avatar = new QLabel("头像");
+    avatar->setFixedSize(58, 58);
+    avatar->setAlignment(Qt::AlignCenter);
+    avatar->setStyleSheet("background: #dceff5; color: #4e91ad; border-radius: "
+                          "29px; font-size: 12px;");
+    auto *nicknameLabel = new QLabel(nickname);
+    nicknameLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    QFont nicknameFont = nicknameLabel->font();
+    nicknameFont.setPointSize(16);
+    nicknameFont.setBold(true);
+    nicknameLabel->setFont(nicknameFont);
+    auto maskedPhone = phone;
+    if (maskedPhone.size() == 11)
+        for (int index = 3; index < 7; ++index) maskedPhone[index] = '*';
+    auto *phoneLabel = new QLabel(maskedPhone);
+    phoneLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    phoneLabel->setStyleSheet("color: #7b8994; font-size: 14px;");
+    auto *profileInfo = new QVBoxLayout;
+    profileInfo->setSpacing(4);
+    profileInfo->addWidget(nicknameLabel);
+    profileInfo->addWidget(phoneLabel);
+    accountLayout->addWidget(avatar, 0, Qt::AlignLeft | Qt::AlignVCenter);
+    accountLayout->addLayout(profileInfo, 1);
 
     auto *summary = new QGridLayout;
     summary->setSpacing(6);
@@ -454,22 +611,26 @@ QWidget *createProfilePage(const QSqlDatabase &db) {
     auto *wallet = new QGroupBox("我的钱包");
     wallet->setObjectName("sectionCard");
     auto *walletLayout = new QHBoxLayout(wallet);
-    walletLayout->addWidget(new QLabel(QString("余额：¥ %1").arg(balance, 0, 'f', 2)), 1);
-    walletLayout->addWidget(new QPushButton("充值"));
+    auto *balanceLabel = new QLabel(QString("¥ %1").arg(balance, 0, 'f', 2));
+    QFont balanceFont = balanceLabel->font();
+    balanceFont.setPointSize(20);
+    balanceFont.setBold(true);
+    balanceLabel->setFont(balanceFont);
+    walletLayout->addWidget(balanceLabel, 1);
+    auto *rechargeButton = new QPushButton("充值");
+    rechargeButton->setMinimumWidth(86);
+    walletLayout->addWidget(rechargeButton);
 
-    auto *actions = new QGroupBox("常用功能");
-    actions->setObjectName("sectionCard");
-    auto *actionLayout = new QGridLayout(actions);
-    actionLayout->addWidget(new QPushButton("编辑资料"), 0, 0);
-    actionLayout->addWidget(new QPushButton("更换头像"), 0, 1);
-    actionLayout->addWidget(new QPushButton("历史订单"), 1, 0);
-    actionLayout->addWidget(new QPushButton("充值记录"), 1, 1);
     layout->addWidget(account);
+    layout->addSpacing(12);
     layout->addLayout(summary);
+    layout->addSpacing(12);
     layout->addWidget(wallet);
-    layout->addWidget(actions);
-    layout->addWidget(new QPushButton("退出登录"));
     layout->addStretch(1);
+    auto *logoutButton = new QPushButton("退出登录");
+    logoutButton->setStyleSheet(
+      "color: #7b8994; background: transparent; border: none;");
+    layout->addWidget(logoutButton);
 
     auto *scrollArea = new QScrollArea;
     scrollArea->setWidgetResizable(true);
@@ -492,13 +653,41 @@ UserMainWindow::UserMainWindow(QWidget *parent) : QMainWindow(parent) {
     const auto db = openDatabase();
     pages_->addWidget(createFindStationPage(loadStations(db)));
     pages_->addWidget(createOrdersPage(db));
-    pages_->addWidget(createProfilePage(db));
+    auto *profilePage = createProfilePage(db);
+    pages_->addWidget(profilePage);
+    for (auto *button : profilePage->findChildren<QPushButton *>()) {
+        if (button->text() == "退出登录") {
+            connect(button, &QPushButton::clicked, this, [this] {
+                if (logoutHandler_) logoutHandler_();
+            });
+        }
+    }
 
     auto *navigation = new QFrame;
     navigation->setObjectName("bottomNav");
+    navigation->setStyleSheet(R"QSS(
+        QFrame#bottomNav {
+            background: #ffffff;
+            border-top: 1px solid #e7edf1;
+        }
+        QToolButton[nav] {
+            min-height: 46px;
+            border: none;
+            border-radius: 8px;
+            color: #8b98a3;
+            font-size: 12px;
+            padding: 1px 0 0 0;
+        }
+        QToolButton[nav]:checked {
+            color: #2f7fae;
+            font-weight: 600;
+            background: #f0f7fa;
+        }
+        QToolButton[nav]:pressed { background: #e7f1f5; }
+    )QSS");
     auto *navigationLayout = new QHBoxLayout(navigation);
-    navigationLayout->setContentsMargins(6, 6, 6, 6);
-    navigationLayout->setSpacing(4);
+    navigationLayout->setContentsMargins(4, 3, 4, 3);
+    navigationLayout->setSpacing(2);
     auto *buttonGroup = new QButtonGroup(this);
     const QStringList labels{"首页", "订单", "我的"};
     const QStringList icons{":/icons/house.svg", ":/icons/list.svg",

@@ -285,6 +285,129 @@ FROM charging_sessions cs
 JOIN tariffs t ON t.station_id = cs.station_id AND t.charger_type = 'all'
 WHERE cs.session_no = 'SES2026081550';
 
+-- Additional order scenarios for user 13800000001. The rows span all stations,
+-- AC/DC chargers, discounts, and payment outcomes for richer demo screens.
+WITH extra_reservations(reservation_no, station_id, charger_code, reserved_at,
+                        expires_at, started_at, ended_at, status) AS (
+    VALUES
+        ('RSV20260820X1', 1, 'AC001', '2026-08-20T07:30:00Z', '2026-08-20T08:00:00Z', '2026-08-20T07:35:00Z', '2026-08-20T08:35:00Z', 'completed'),
+        ('RSV20260821X1', 2, 'DC001', '2026-08-21T09:00:00Z', '2026-08-21T09:30:00Z', '2026-08-21T09:05:00Z', '2026-08-21T09:50:00Z', 'completed'),
+        ('RSV20260822X1', 3, 'AC002', '2026-08-22T12:00:00Z', '2026-08-22T12:30:00Z', '2026-08-22T12:06:00Z', '2026-08-22T12:56:00Z', 'completed'),
+        ('RSV20260823X1', 4, 'DC002', '2026-08-23T18:00:00Z', '2026-08-23T18:30:00Z', '2026-08-23T18:08:00Z', '2026-08-23T18:48:00Z', 'completed'),
+        ('RSV20260824X1', 5, 'AC001', '2026-08-24T06:30:00Z', '2026-08-24T07:00:00Z', '2026-08-24T06:34:00Z', '2026-08-24T07:24:00Z', 'completed'),
+        ('RSV20260825X1', 1, 'DC002', '2026-08-25T10:00:00Z', '2026-08-25T10:30:00Z', '2026-08-25T10:04:00Z', '2026-08-25T10:59:00Z', 'completed'),
+        ('RSV20260826X1', 2, 'AC002', '2026-08-26T14:00:00Z', '2026-08-26T14:30:00Z', '2026-08-26T14:05:00Z', '2026-08-26T14:40:00Z', 'completed'),
+        ('RSV20260827X1', 3, 'DC001', '2026-08-27T20:00:00Z', '2026-08-27T20:30:00Z', '2026-08-27T20:07:00Z', '2026-08-27T20:52:00Z', 'completed'),
+        ('RSV20260828X1', 4, 'AC001', '2026-08-28T08:00:00Z', '2026-08-28T08:30:00Z', '2026-08-28T08:03:00Z', '2026-08-28T08:28:00Z', 'completed'),
+        ('RSV20260829X1', 5, 'DC001', '2026-08-29T16:00:00Z', '2026-08-29T16:30:00Z', '2026-08-29T16:06:00Z', '2026-08-29T16:46:00Z', 'completed'),
+        ('RSV20260830X1', 1, 'AC002', '2026-08-30T11:00:00Z', '2026-08-30T11:30:00Z', '2026-08-30T11:05:00Z', '2026-08-30T11:50:00Z', 'completed'),
+        ('RSV20260831X1', 2, 'DC002', '2026-08-31T21:00:00Z', '2026-08-31T21:30:00Z', '2026-08-31T21:10:00Z', '2026-08-31T21:55:00Z', 'completed')
+)
+INSERT OR IGNORE INTO reservations
+    (reservation_no, user_id, charger_id, status, reserved_at, expires_at, started_at,
+     ended_at, idempotency_key, created_at, updated_at)
+SELECT
+    er.reservation_no,
+    1,
+    c.id,
+    er.status,
+    er.reserved_at,
+    er.expires_at,
+    er.started_at,
+    er.ended_at,
+    'seed-extra-' || er.reservation_no,
+    er.reserved_at,
+    er.ended_at
+FROM extra_reservations er
+JOIN chargers c ON c.station_id = er.station_id AND c.charger_code = er.charger_code;
+
+WITH extra_sessions(session_no, reservation_no, energy_kwh, duration_seconds,
+                   meter_start_kwh, soc_start) AS (
+    VALUES
+        ('SES20260820X1', 'RSV20260820X1', 4.200, 3600, 210.000, 32),
+        ('SES20260821X1', 'RSV20260821X1', 18.600, 2700, 320.000, 21),
+        ('SES20260822X1', 'RSV20260822X1', 5.750, 3000, 145.000, 45),
+        ('SES20260823X1', 'RSV20260823X1', 22.400, 2400, 510.000, 18),
+        ('SES20260824X1', 'RSV20260824X1', 3.900, 3000, 88.000, 54),
+        ('SES20260825X1', 'RSV20260825X1', 26.300, 3300, 610.000, 16),
+        ('SES20260826X1', 'RSV20260826X1', 6.100, 2100, 172.000, 38),
+        ('SES20260827X1', 'RSV20260827X1', 20.800, 2700, 430.000, 24),
+        ('SES20260828X1', 'RSV20260828X1', 2.850, 1500, 66.000, 61),
+        ('SES20260829X1', 'RSV20260829X1', 16.500, 2400, 275.000, 29),
+        ('SES20260830X1', 'RSV20260830X1', 7.250, 2700, 198.000, 41),
+        ('SES20260831X1', 'RSV20260831X1', 24.000, 2700, 545.000, 19)
+)
+INSERT OR IGNORE INTO charging_sessions
+    (session_no, reservation_id, user_id, charger_id, station_id, status, started_at,
+     ended_at, meter_start_kwh, meter_end_kwh, energy_kwh, duration_seconds, soc_start,
+     soc_end, idempotency_key, created_at, updated_at)
+SELECT
+    es.session_no,
+    r.id,
+    r.user_id,
+    r.charger_id,
+    c.station_id,
+    'settled',
+    r.started_at,
+    r.ended_at,
+    es.meter_start_kwh,
+    round(es.meter_start_kwh + es.energy_kwh, 3),
+    es.energy_kwh,
+    es.duration_seconds,
+    es.soc_start,
+    min(100, es.soc_start + round(es.energy_kwh * 2.2, 0)),
+    'seed-extra-' || es.session_no,
+    r.started_at,
+    r.ended_at
+FROM extra_sessions es
+JOIN reservations r ON r.reservation_no = es.reservation_no
+JOIN chargers c ON c.id = r.charger_id;
+
+WITH extra_orders(order_no, session_no, status, discount_amount, failure_reason) AS (
+    VALUES
+        ('ORD20260820X1', 'SES20260820X1', 'paid', 0.00, NULL),
+        ('ORD20260821X1', 'SES20260821X1', 'paid', 5.00, NULL),
+        ('ORD20260822X1', 'SES20260822X1', 'paid', 0.00, NULL),
+        ('ORD20260823X1', 'SES20260823X1', 'paid', 8.00, NULL),
+        ('ORD20260824X1', 'SES20260824X1', 'paid', 2.50, NULL),
+        ('ORD20260825X1', 'SES20260825X1', 'paid', 10.00, NULL),
+        ('ORD20260826X1', 'SES20260826X1', 'paid', 0.00, NULL),
+        ('ORD20260827X1', 'SES20260827X1', 'refunded', 0.00, NULL),
+        ('ORD20260828X1', 'SES20260828X1', 'pending_payment', 0.00, NULL),
+        ('ORD20260829X1', 'SES20260829X1', 'payment_failed', 0.00, '第三方支付超时'),
+        ('ORD20260830X1', 'SES20260830X1', 'cancelled', 0.00, NULL),
+        ('ORD20260831X1', 'SES20260831X1', 'paid', 6.00, NULL)
+)
+INSERT OR IGNORE INTO orders
+    (order_no, session_id, user_id, station_id, charger_id, status, energy_kwh,
+     duration_seconds, electricity_unit_price, service_unit_price, gross_amount,
+     discount_amount, payable_amount, paid_amount, failure_reason, settled_at,
+     created_at, updated_at)
+SELECT
+    eo.order_no,
+    cs.id,
+    cs.user_id,
+    cs.station_id,
+    cs.charger_id,
+    eo.status,
+    cs.energy_kwh,
+    cs.duration_seconds,
+    t.electricity_price,
+    t.service_price,
+    round(cs.energy_kwh * (t.electricity_price + t.service_price), 2),
+    eo.discount_amount,
+    round(cs.energy_kwh * (t.electricity_price + t.service_price) - eo.discount_amount, 2),
+    CASE WHEN eo.status IN ('paid', 'refunded')
+         THEN round(cs.energy_kwh * (t.electricity_price + t.service_price) - eo.discount_amount, 2)
+         ELSE 0 END,
+    eo.failure_reason,
+    CASE WHEN eo.status IN ('paid', 'refunded') THEN cs.ended_at ELSE NULL END,
+    cs.created_at,
+    cs.updated_at
+FROM extra_orders eo
+JOIN charging_sessions cs ON cs.session_no = eo.session_no
+JOIN tariffs t ON t.station_id = cs.station_id AND t.charger_type = 'all';
+
 -- Initial balances are deliberately different for the normal and debt users.
 INSERT OR IGNORE INTO wallet_transactions
     (user_id, transaction_no, transaction_type, amount, balance_before, balance_after,
