@@ -14,6 +14,7 @@
 #include <QSqlDatabase>
 #include <QSqlQuery>
 #include <QTimer>
+#include <QDateTime>
 #include <QVBoxLayout>
 #include <QDir>
 #include <QFileInfo>
@@ -76,8 +77,8 @@ bool login(QWidget *parent, qint64 &userId) {
             font-weight: 600;
         }
         QPushButton[text="登录"]:pressed { background: #256889; }
-        QPushButton[text="退出"] { color: #687684; background: transparent; }
-        QPushButton[text="退出"]:pressed { color: #2f7fae; }
+        QPushButton[text="注册账号"] { color: #2f7fae; background: transparent; }
+        QPushButton[text="注册账号"]:pressed { color: #256889; }
     )QSS");
     auto *layout = new QVBoxLayout(&dialog);
     layout->setContentsMargins(28, 54, 28, 28);
@@ -91,9 +92,6 @@ bool login(QWidget *parent, qint64 &userId) {
     welcome->setAlignment(Qt::AlignCenter);
     layout->addWidget(welcome);
     layout->addSpacing(30);
-    auto *phoneLabel = new QLabel("手机号");
-    QFont labelFont = phoneLabel->font(); labelFont.setBold(true); phoneLabel->setFont(labelFont);
-    layout->addWidget(phoneLabel);
     auto *phone = new QLineEdit;
     phone->setPlaceholderText("请输入手机号");
     phone->setMaxLength(11);
@@ -111,38 +109,96 @@ bool login(QWidget *parent, qint64 &userId) {
         phone->setPalette(palette);
     });
     layout->addStretch(1);
+    auto *errorLabel = new QLabel;
+    errorLabel->setStyleSheet("color: #c45151; font-size: 13px; padding-left: 4px;");
+    errorLabel->setVisible(false);
+    layout->insertWidget(layout->count() - 1, errorLabel);
     auto *loginButton = new QPushButton("登录");
     loginButton->setMinimumHeight(52);
     loginButton->setDefault(true);
     layout->addWidget(loginButton);
-    auto *cancelButton = new QPushButton("退出");
-    cancelButton->setFlat(true);
-    layout->addWidget(cancelButton);
+    auto *registerButton = new QPushButton("注册账号");
+    registerButton->setFlat(true);
+    layout->addWidget(registerButton);
     layout->addSpacing(8);
-    layout->addWidget(new QLabel("演示账号：13800000001"));
-    QObject::connect(cancelButton, &QPushButton::clicked, &dialog, &QDialog::reject);
+    QObject::connect(registerButton, &QPushButton::clicked, &dialog, [&] {
+        const QString newPhone = phone->text().trimmed();
+        if (newPhone.size() != 11) { errorLabel->setText("请输入 11 位手机号后再注册"); errorLabel->setVisible(true); return; }
+        QSqlQuery exists(db);
+        exists.prepare("SELECT id FROM users WHERE phone = :phone");
+        exists.bindValue(":phone", newPhone);
+        if (!exists.exec()) { errorLabel->setText("注册失败，请稍后重试"); errorLabel->setVisible(true); return; }
+        if (exists.next()) { errorLabel->setText("该手机号已注册，请直接登录"); errorLabel->setVisible(true); return; }
+        const QString now = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+        QSqlQuery insert(db);
+        insert.prepare("INSERT INTO users (phone, nickname, wallet_balance, status, created_at, updated_at) "
+                       "VALUES (:phone, :nickname, 0, 'active', :created, :updated)");
+        insert.bindValue(":phone", newPhone);
+        insert.bindValue(":nickname", "用户" + newPhone.right(4));
+        insert.bindValue(":created", now);
+        insert.bindValue(":updated", now);
+        if (!insert.exec()) { errorLabel->setText("注册失败，请稍后重试"); errorLabel->setVisible(true); return; }
+        userId = insert.lastInsertId().toLongLong();
+        dialog.accept();
+    });
     QObject::connect(loginButton, &QPushButton::clicked, &dialog, [&] {
-        if (phone->text().trimmed().size() != 11) { QMessageBox::warning(&dialog, "提示", "请输入 11 位手机号"); return; }
+        auto showError = [&](const QString &message) { errorLabel->setText(message); errorLabel->setVisible(true); };
+        if (phone->text().trimmed().size() != 11) { showError("请输入 11 位手机号"); return; }
         QSqlQuery query(db);
         query.prepare("SELECT id, status FROM users WHERE phone = :phone");
         query.bindValue(":phone", phone->text().trimmed());
-        if (!query.exec() || !query.next()) { QMessageBox::warning(&dialog, "登录失败", "手机号未注册"); return; }
+        if (!query.exec() || !query.next()) { showError("该手机号未注册"); return; }
         const auto status = query.value(1).toString();
-        if (status != "active") { QMessageBox::warning(&dialog, "登录失败", status == "frozen" ? "账户已冻结" : "账户已禁用"); return; }
+        if (status != "active") { showError(status == "frozen" ? "账户已冻结，暂时无法登录" : "账户已禁用，暂时无法登录"); return; }
         userId = query.value(0).toLongLong();
         dialog.accept();
     });
     return dialog.exec() == QDialog::Accepted;
+}
+
+void showLoginAlert(QWidget *parent, const QString &title, const QString &message) {
+    QDialog alert(parent);
+    alert.setWindowTitle(title);
+    alert.setMinimumWidth(300);
+    alert.setStyleSheet(R"QSS(
+        QDialog { background: #ffffff; color: #17212b; }
+        QLabel#alertTitle { font-size: 17px; font-weight: 600; }
+        QLabel#alertMessage { color: #687684; font-size: 14px; }
+        QPushButton { min-height: 44px; border: none; border-radius: 10px; background: #2f7fae; color: white; font-size: 15px; font-weight: 600; }
+        QPushButton:pressed { background: #256889; }
+    )QSS");
+    auto *layout = new QVBoxLayout(&alert);
+    layout->setContentsMargins(24, 22, 24, 20);
+    layout->setSpacing(10);
+    auto *titleLabel = new QLabel(title);
+    titleLabel->setObjectName("alertTitle");
+    layout->addWidget(titleLabel);
+    auto *messageLabel = new QLabel(message);
+    messageLabel->setObjectName("alertMessage");
+    messageLabel->setWordWrap(true);
+    layout->addWidget(messageLabel);
+    auto *ok = new QPushButton("知道了");
+    layout->addSpacing(8);
+    layout->addWidget(ok);
+    QObject::connect(ok, &QPushButton::clicked, &alert, &QDialog::accept);
+    alert.exec();
 }
 }
 
 int main(int argc, char *argv[]) {
     QApplication application(argc, argv);
     QApplication::setApplicationName("智充出行");
-    qint64 userId = 0;
-    if (!login(nullptr, userId)) return 0;
-    qputenv("CHARGING_USER_ID", QByteArray::number(userId));
-    UserMainWindow window;
-    window.show();
-    return application.exec();
+    while (true) {
+        qint64 userId = 0;
+        if (!login(nullptr, userId)) return 0;
+        qputenv("CHARGING_USER_ID", QByteArray::number(userId));
+        UserMainWindow window;
+        window.setLogoutHandler([&application, &window] {
+            window.close();
+            application.exit(42);
+        });
+        window.show();
+        if (application.exec() != 42) return 0;
+        qunsetenv("CHARGING_USER_ID");
+    }
 }
