@@ -87,3 +87,10 @@ work/
 __pycache__/
 *.pyc
 ml/models/*.pkl
+
+# ==========================================
+# Datasets
+# ==========================================
+reference/datasets/**/*
+!reference/datasets/**/
+!reference/datasets/**/source.md
