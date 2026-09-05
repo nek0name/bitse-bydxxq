@@ -6,6 +6,7 @@
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
 #include <QFont>
 #include <QLabel>
@@ -14,30 +15,161 @@
 #include <QMessageBox>
 #include <QPalette>
 #include <QPushButton>
+#include <QRegularExpression>
 #include <QSqlDatabase>
 #include <QSqlQuery>
 #include <QTimer>
 #include <QVBoxLayout>
 
 namespace {
-QSqlDatabase loginDatabase() {
-    QString path = qEnvironmentVariable("CHARGING_DB_PATH");
-    if (path.isEmpty()) {
-        QDir dir(QCoreApplication::applicationDirPath());
-        const QStringList candidates = {
-          dir.filePath("../../../../database/charging_platform.db"),
-          dir.filePath("../../../database/charging_platform.db"),
-          QDir::current().filePath("database/charging_platform.db")};
-        for (const auto &candidate : candidates)
-            if (QFileInfo::exists(candidate)) {
-                path = QFileInfo(candidate).canonicalFilePath();
-                break;
-            }
+QString resolveDatabasePath() {
+    const QString configured = qEnvironmentVariable("CHARGING_DB_PATH");
+    if (!configured.isEmpty()) return QDir::cleanPath(configured);
+
+    QDir dir(QCoreApplication::applicationDirPath());
+    const QStringList candidates = {
+      dir.filePath("../../../../database/charging_platform.db"),
+      dir.filePath("../../../database/charging_platform.db"),
+      QDir::current().filePath("database/charging_platform.db")};
+    QString fallback;
+    for (const auto &candidate : candidates) {
+        const QFileInfo info(candidate);
+        if (info.exists()) return info.canonicalFilePath();
+        if (fallback.isEmpty() && info.dir().exists())
+            fallback = info.absoluteFilePath();
     }
+    return fallback;
+}
+
+QString resolveSqlPath(const QString &databasePath, const QString &name) {
+    const QFileInfo databaseInfo(databasePath);
+    const QStringList candidates = {
+      databaseInfo.dir().filePath(name),
+      QDir(QCoreApplication::applicationDirPath())
+        .filePath("../../../../database/" + name),
+      QDir(QCoreApplication::applicationDirPath())
+        .filePath("../../../database/" + name),
+      QDir::current().filePath("database/" + name)};
+    for (const auto &candidate : candidates) {
+        if (QFileInfo::exists(candidate))
+            return QFileInfo(candidate).absoluteFilePath();
+    }
+    return {};
+}
+
+QStringList splitSqlScript(const QString &script) {
+    QStringList statements;
+    QString statement;
+    bool singleQuote = false;
+    bool doubleQuote = false;
+    bool lineComment = false;
+    bool blockComment = false;
+    for (int index = 0; index < script.size(); ++index) {
+        const QChar ch = script.at(index);
+        const QChar next = index + 1 < script.size() ? script.at(index + 1)
+                                                     : QChar();
+        if (lineComment) {
+            if (ch == '\n') lineComment = false;
+            continue;
+        }
+        if (blockComment) {
+            if (ch == '*' && next == '/') {
+                blockComment = false;
+                ++index;
+            }
+            continue;
+        }
+        if (!singleQuote && !doubleQuote && ch == '-' && next == '-') {
+            lineComment = true;
+            ++index;
+            continue;
+        }
+        if (!singleQuote && !doubleQuote && ch == '/' && next == '*') {
+            blockComment = true;
+            ++index;
+            continue;
+        }
+        if (ch == '\'' && !doubleQuote) {
+            statement += ch;
+            if (singleQuote && next == '\'') {
+                statement += next;
+                ++index;
+            } else {
+                singleQuote = !singleQuote;
+            }
+            continue;
+        }
+        if (ch == '"' && !singleQuote) {
+            statement += ch;
+            if (doubleQuote && next == '"') {
+                statement += next;
+                ++index;
+            } else {
+                doubleQuote = !doubleQuote;
+            }
+            continue;
+        }
+        if (ch == ';' && !singleQuote && !doubleQuote) {
+            if (!statement.trimmed().isEmpty())
+                statements.append(statement.trimmed());
+            statement.clear();
+        } else {
+            statement += ch;
+        }
+    }
+    if (!statement.trimmed().isEmpty()) statements.append(statement.trimmed());
+    return statements;
+}
+
+bool executeSqlScript(QSqlDatabase &db, const QString &path) {
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly)) return false;
+    for (const auto &statement :
+         splitSqlScript(QString::fromUtf8(file.readAll()))) {
+        QSqlQuery query(db);
+        if (!query.exec(statement)) {
+            db.rollback();
+            return false;
+        }
+    }
+    return true;
+}
+
+bool initializeDatabase(QSqlDatabase &db, const QString &databasePath) {
+    const QString schemaPath = resolveSqlPath(databasePath, "schema.sql");
+    const QString seedPath = resolveSqlPath(databasePath, "seed.sql");
+    if (schemaPath.isEmpty() || seedPath.isEmpty()) return false;
+    return executeSqlScript(db, schemaPath) && executeSqlScript(db, seedPath);
+}
+
+bool hasSeedData(const QSqlDatabase &db) {
+    QSqlQuery query(db);
+    query.prepare("SELECT EXISTS (SELECT 1 FROM users) "
+                  "AND EXISTS (SELECT 1 FROM stations) "
+                  "AND EXISTS (SELECT 1 FROM chargers) "
+                  "AND EXISTS (SELECT 1 FROM tariffs)");
+    return query.exec() && query.next();
+}
+
+QSqlDatabase loginDatabase() {
+    const QString path = resolveDatabasePath();
     if (path.isEmpty()) return {};
+    const bool needsInitialization = !QFileInfo::exists(path);
+    const QFileInfo pathInfo(path);
+    if (!pathInfo.dir().exists()
+        && !QDir().mkpath(pathInfo.dir().absolutePath()))
+        return {};
     auto db = QSqlDatabase::addDatabase("QSQLITE", "login");
     db.setDatabaseName(path);
     if (!db.open()) return {};
+    QSqlQuery pragma(db);
+    pragma.exec("PRAGMA foreign_keys = ON");
+    pragma.exec("PRAGMA busy_timeout = 5000");
+    if ((needsInitialization || !hasSeedData(db))
+        && !initializeDatabase(db, path)) {
+        db.close();
+        return {};
+    }
     return db;
 }
 
@@ -85,8 +217,6 @@ bool login(QWidget *parent, qint64 &userId) {
             font-weight: 600;
         }
         QPushButton[text="登录"]:pressed { background: #256889; }
-        QPushButton[text="注册账号"] { color: #2f7fae; background: transparent; }
-        QPushButton[text="注册账号"]:pressed { color: #256889; }
     )QSS");
     auto *layout = new QVBoxLayout(&dialog);
     layout->setContentsMargins(28, 54, 28, 28);
@@ -120,73 +250,53 @@ bool login(QWidget *parent, qint64 &userId) {
         palette.setColor(QPalette::PlaceholderText, QColor("#c3cbd1"));
         phone->setPalette(palette);
     });
-    layout->addStretch(1);
     auto *errorLabel = new QLabel;
     errorLabel->setStyleSheet(
       "color: #c45151; font-size: 13px; padding-left: 4px;");
     errorLabel->setVisible(false);
-    layout->insertWidget(layout->count() - 1, errorLabel);
+    layout->addWidget(errorLabel);
+    layout->addStretch(1);
     auto *loginButton = new QPushButton("登录");
     loginButton->setMinimumHeight(52);
     loginButton->setDefault(true);
     layout->addWidget(loginButton);
-    auto *registerButton = new QPushButton("注册账号");
-    registerButton->setFlat(true);
-    layout->addWidget(registerButton);
     layout->addSpacing(8);
-    QObject::connect(registerButton, &QPushButton::clicked, &dialog, [&] {
-        const QString newPhone = phone->text().trimmed();
-        if (newPhone.size() != 11) {
-            errorLabel->setText("请输入 11 位手机号后再注册");
-            errorLabel->setVisible(true);
-            return;
-        }
-        QSqlQuery exists(db);
-        exists.prepare("SELECT id FROM users WHERE phone = :phone");
-        exists.bindValue(":phone", newPhone);
-        if (!exists.exec()) {
-            errorLabel->setText("注册失败，请稍后重试");
-            errorLabel->setVisible(true);
-            return;
-        }
-        if (exists.next()) {
-            errorLabel->setText("该手机号已注册，请直接登录");
-            errorLabel->setVisible(true);
-            return;
-        }
-        const QString now = QDateTime::currentDateTimeUtc().toString(
-          Qt::ISODate);
-        QSqlQuery insert(db);
-        insert.prepare(
-          "INSERT INTO users (phone, nickname, wallet_balance, status, "
-          "created_at, updated_at) "
-          "VALUES (:phone, :nickname, 0, 'active', :created, :updated)");
-        insert.bindValue(":phone", newPhone);
-        insert.bindValue(":nickname", "用户" + newPhone.right(4));
-        insert.bindValue(":created", now);
-        insert.bindValue(":updated", now);
-        if (!insert.exec()) {
-            errorLabel->setText("注册失败，请稍后重试");
-            errorLabel->setVisible(true);
-            return;
-        }
-        userId = insert.lastInsertId().toLongLong();
-        dialog.accept();
-    });
     QObject::connect(loginButton, &QPushButton::clicked, &dialog, [&] {
         auto showError = [&](const QString &message) {
             errorLabel->setText(message);
             errorLabel->setVisible(true);
         };
-        if (phone->text().trimmed().size() != 11) {
-            showError("请输入 11 位手机号");
+        const QString loginPhone = phone->text().trimmed();
+        if (loginPhone.size() != 11
+            || !QRegularExpression("^1\\d{10}$").match(loginPhone).hasMatch()) {
+            showError("请输入有效的 11 位手机号");
             return;
         }
         QSqlQuery query(db);
         query.prepare("SELECT id, status FROM users WHERE phone = :phone");
-        query.bindValue(":phone", phone->text().trimmed());
-        if (!query.exec() || !query.next()) {
-            showError("该手机号未注册");
+        query.bindValue(":phone", loginPhone);
+        if (!query.exec()) {
+            showError("登录失败，请稍后重试");
+            return;
+        }
+        if (!query.next()) {
+            const QString now = QDateTime::currentDateTimeUtc().toString(
+              Qt::ISODate);
+            QSqlQuery insert(db);
+            insert.prepare(
+              "INSERT INTO users (phone, nickname, wallet_balance, status, "
+              "created_at, updated_at) VALUES (:phone, :nickname, 0, 'active', "
+              ":created, :updated)");
+            insert.bindValue(":phone", loginPhone);
+            insert.bindValue(":nickname", "用户" + loginPhone.right(4));
+            insert.bindValue(":created", now);
+            insert.bindValue(":updated", now);
+            if (!insert.exec()) {
+                showError("注册失败，请稍后重试");
+                return;
+            }
+            userId = insert.lastInsertId().toLongLong();
+            dialog.accept();
             return;
         }
         const auto status = query.value(1).toString();
@@ -196,6 +306,16 @@ bool login(QWidget *parent, qint64 &userId) {
             return;
         }
         userId = query.value(0).toLongLong();
+        QSqlQuery lastLogin(db);
+        lastLogin.prepare(
+          "UPDATE users SET last_login_at = :last_login, updated_at = :updated "
+          "WHERE id = :id");
+        const QString now = QDateTime::currentDateTimeUtc().toString(
+          Qt::ISODate);
+        lastLogin.bindValue(":last_login", now);
+        lastLogin.bindValue(":updated", now);
+        lastLogin.bindValue(":id", userId);
+        lastLogin.exec();
         dialog.accept();
     });
     return dialog.exec() == QDialog::Accepted;

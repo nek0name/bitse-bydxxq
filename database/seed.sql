@@ -440,7 +440,7 @@ WITH ordered AS (
             ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
         ) AS cumulative_spend
     FROM orders o
-    WHERE o.status = 'paid'
+    WHERE o.status IN ('paid', 'refunded')
       AND o.order_no LIKE 'ORD2026%'
 )
 INSERT OR IGNORE INTO wallet_transactions
@@ -458,6 +458,28 @@ SELECT
     CASE WHEN user_id = 5 THEN '欠费扣款，余额不足后停止后续扣款' ELSE '充电消费' END,
     settled_at
 FROM ordered;
+
+-- A refunded order first records the original charge, then returns the same
+-- amount so the ledger and the user balance remain fully reconciled.
+INSERT OR IGNORE INTO wallet_transactions
+    (user_id, transaction_no, transaction_type, amount, balance_before, balance_after,
+     order_id, idempotency_key, remark, created_at)
+SELECT
+    o.user_id,
+    'REF' || substr(o.order_no, 4),
+    'refund',
+    round(o.paid_amount, 2),
+    charge.balance_after,
+    round(charge.balance_after + o.paid_amount, 2),
+    o.id,
+    'seed-refund-' || o.order_no,
+    '订单退款',
+    o.updated_at
+FROM orders o
+JOIN wallet_transactions charge
+  ON charge.order_id = o.id AND charge.transaction_type = 'charge'
+WHERE o.status = 'refunded'
+  AND o.order_no LIKE 'ORD2026%';
 
 -- Keep the user snapshot equal to the final wallet ledger balance.
 UPDATE users

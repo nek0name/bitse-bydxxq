@@ -52,6 +52,10 @@ cmake --build build/debug -j
 ./build/debug/apps/admin-app/charging-admin
 ```
 
+首次启动用户端时，如果数据库文件不存在，程序会自动在 `database/charging_platform.db`
+创建数据库并执行 `database/schema.sql`、`database/seed.sql`。也可以通过
+`CHARGING_DB_PATH` 指定其他 SQLite 文件路径；该路径的同级目录需要能找到上述两个脚本。
+
 默认同时构建两个应用。也可以在配置时使用 `BUILD_USER_APP` 或 `BUILD_ADMIN_APP` 开关单独构建，例如：
 
 ```bash
