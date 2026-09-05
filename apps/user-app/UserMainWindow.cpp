@@ -15,10 +15,12 @@
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QIcon>
+#include <QInputDialog>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
 #include <QMenu>
+#include <QMessageBox>
 #include <QMouseEvent>
 #include <QProgressBar>
 #include <QPushButton>
@@ -33,20 +35,45 @@
 #include <QUrl>
 #include <QVBoxLayout>
 
+#include <algorithm>
+#include <cmath>
 #include <functional>
+#include <memory>
 
 namespace {
 constexpr int kMargin = 12;
 constexpr int kSpacing = 8;
 
 struct StationRow {
+    qint64 id = 0;
     QString name;
     QString address;
     QString region;
     int idle = 0;
     int total = 0;
     double price = 0;
+    double latitude = 0;
+    double longitude = 0;
+    double distanceKm = 0;
 };
+
+double distanceKm(double latitude, double longitude) {
+    constexpr double kOriginLatitude = 31.230416;
+    constexpr double kOriginLongitude = 121.473701;
+    constexpr double kEarthRadiusKm = 6371.0;
+    constexpr double kPi = 3.14159265358979323846;
+    const auto radians = [kPi](double value) {
+        return value * kPi / 180.0;
+    };
+    const double lat1 = radians(kOriginLatitude);
+    const double lat2 = radians(latitude);
+    const double dLat = lat2 - lat1;
+    const double dLon = radians(longitude) - radians(kOriginLongitude);
+    const double a = std::sin(dLat / 2) * std::sin(dLat / 2)
+                   + std::cos(lat1) * std::cos(lat2) * std::sin(dLon / 2)
+                       * std::sin(dLon / 2);
+    return kEarthRadiusKm * 2 * std::atan2(std::sqrt(a), std::sqrt(1 - a));
+}
 
 QSqlDatabase openDatabase() {
     QString path = qEnvironmentVariable("CHARGING_DB_PATH");
@@ -85,17 +112,28 @@ QList<StationRow> loadStations(const QSqlDatabase &db) {
     if (!db.isOpen()) return rows;
     QSqlQuery query(db);
     query.prepare(
-      "SELECT v.name, v.address, COALESCE(v.region_code, ''), "
+      "SELECT v.station_id, v.name, v.address, COALESCE(v.region_code, ''), "
+      "COALESCE(s.latitude, 0), COALESCE(s.longitude, 0), "
       "COALESCE(v.idle_charger_count, 0), COALESCE(v.charger_count, 0), "
       "COALESCE(t.electricity_price + t.service_price, 0) "
-      "FROM v_station_availability v LEFT JOIN tariffs t "
+      "FROM v_station_availability v JOIN stations s ON s.id = v.station_id "
+      "LEFT JOIN tariffs t "
       "ON t.station_id = v.station_id AND t.charger_type = 'all' "
       "ORDER BY v.station_id");
     if (!query.exec()) return rows;
     while (query.next()) {
-        rows.append({query.value(0).toString(), query.value(1).toString(),
-                     query.value(2).toString(), query.value(3).toInt(),
-                     query.value(4).toInt(), query.value(5).toDouble()});
+        StationRow row;
+        row.id = query.value(0).toLongLong();
+        row.name = query.value(1).toString();
+        row.address = query.value(2).toString();
+        row.region = query.value(3).toString();
+        row.latitude = query.value(4).toDouble();
+        row.longitude = query.value(5).toDouble();
+        row.idle = query.value(6).toInt();
+        row.total = query.value(7).toInt();
+        row.price = query.value(8).toDouble();
+        row.distanceKm = distanceKm(row.latitude, row.longitude);
+        rows.append(row);
     }
     return rows;
 }
@@ -163,18 +201,47 @@ QFrame *createSummaryItem(const QString &value, const QString &label) {
     return item;
 }
 
-void showStationDetails(QWidget *parent, const QString &name,
-                        const QString &availability, const QString &detail) {
+void showStationDetails(QWidget *parent, const QSqlDatabase &db,
+                        const StationRow &station) {
     QDialog dialog(parent);
-    dialog.setWindowTitle(name);
+    dialog.setWindowTitle(station.name);
     dialog.setMinimumWidth(320);
     auto *layout = new QVBoxLayout(&dialog);
-    layout->addWidget(createHeading(name));
-    layout->addWidget(new QLabel(availability));
-    layout->addWidget(new QLabel(detail));
+    layout->addWidget(createHeading(station.name));
+    layout->addWidget(
+      new QLabel(QString("空闲 %1 / %2").arg(station.idle).arg(station.total)));
+    layout->addWidget(new QLabel(QString("%1 · ¥%2/度")
+                                   .arg(station.address)
+                                   .arg(station.price, 0, 'f', 2)));
     layout->addWidget(new QLabel("可用设备"));
-    layout->addWidget(new QLabel("A01 · 直流快充 · 120 kW · 空闲"));
-    layout->addWidget(new QLabel("A02 · 交流慢充 · 7 kW · 空闲"));
+    if (!db.isOpen()) {
+        layout->addWidget(new QLabel("数据库未连接"));
+    } else {
+        QSqlQuery query(db);
+        query.prepare(
+          "SELECT charger_code, charger_type, rated_power_kw, status "
+          "FROM chargers WHERE station_id = :station_id ORDER BY charger_code");
+        query.bindValue(":station_id", station.id);
+        if (!query.exec()) {
+            layout->addWidget(new QLabel("设备信息读取失败"));
+        } else {
+            while (query.next()) {
+                const QString type = query.value(1).toString() == "dc"
+                                     ? "直流快充"
+                                     : "交流慢充";
+                const QMap<QString, QString> statuses{
+                  {"idle", "空闲"},       {"reserved", "已预约"},
+                  {"charging", "充电中"}, {"fault", "故障"},
+                  {"offline", "离线"},    {"maintenance", "维护中"}};
+                layout->addWidget(new QLabel(
+                  QString("%1 · %2 · %3 kW · %4")
+                    .arg(query.value(0).toString(), type)
+                    .arg(query.value(2).toDouble(), 0, 'f', 0)
+                    .arg(statuses.value(query.value(3).toString(),
+                                        query.value(3).toString()))));
+            }
+        }
+    }
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Close);
     QObject::connect(buttons, &QDialogButtonBox::rejected, &dialog,
                      &QDialog::reject);
@@ -182,9 +249,8 @@ void showStationDetails(QWidget *parent, const QString &name,
     dialog.exec();
 }
 
-ClickableFrame *createStationCard(const QString &name, const QString &distance,
-                                  const QString &availability,
-                                  const QString &detail) {
+ClickableFrame *createStationCard(const QSqlDatabase &db,
+                                  const StationRow &station) {
     auto *card = new ClickableFrame;
     card->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     auto *layout = new QVBoxLayout(card);
@@ -192,20 +258,23 @@ ClickableFrame *createStationCard(const QString &name, const QString &distance,
     layout->setSpacing(4);
 
     auto *titleRow = new QHBoxLayout;
-    auto *nameLabel = new QLabel(name);
+    auto *nameLabel = new QLabel(station.name);
     QFont nameFont = nameLabel->font();
     nameFont.setBold(true);
     nameLabel->setFont(nameFont);
     titleRow->addWidget(nameLabel, 1);
-    titleRow->addWidget(new QLabel(distance));
-    auto *detailLabel = new QLabel(detail);
+    titleRow->addWidget(
+      new QLabel(QString("%1 km").arg(station.distanceKm, 0, 'f', 1)));
+    auto *detailLabel = new QLabel(
+      QString("%1 · ¥%2/度")
+        .arg(station.region.isEmpty() ? station.address : station.region)
+        .arg(station.price, 0, 'f', 2));
     QFont detailFont = detailLabel->font();
     detailFont.setPointSize(qMax(8, detailFont.pointSize() - 1));
     detailLabel->setFont(detailFont);
 
-    const QStringList parts = availability.split(' ');
-    const int available = parts.value(1).toInt();
-    const int total = parts.value(3).toInt();
+    const int available = station.idle;
+    const int total = station.total;
     auto *capacityRow = new QHBoxLayout;
     auto *capacity = new QProgressBar;
     capacity->setRange(0, total);
@@ -224,14 +293,17 @@ ClickableFrame *createStationCard(const QString &name, const QString &distance,
     navigateButton->setIcon(QIcon(":/icons/navigation.svg"));
     navigateButton->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
     navigateButton->setAutoRaise(true);
-    navigateButton->setToolTip("导航到" + name);
-    QObject::connect(navigateButton, &QToolButton::clicked, card, [name] {
+    navigateButton->setToolTip("导航到" + station.name);
+    QObject::connect(navigateButton, &QToolButton::clicked, card, [station] {
         const QString
           target = QString::fromLatin1(
-                     "https://apis.map.qq.com/uri/v1/search?keyword=%1&region="
-                     "%2&referer=charging-platform")
-                     .arg(QString::fromUtf8(QUrl::toPercentEncoding(name)),
-                          QString::fromUtf8(QUrl::toPercentEncoding("北京市")));
+                     "https://apis.map.qq.com/uri/v1/routeplan?type=drive&"
+                     "from=当前位置&fromcoord=31.230416,121.473701&to=%1&"
+                     "tocoord=%2,%3&referer=charging-platform")
+                     .arg(
+                       QString::fromUtf8(QUrl::toPercentEncoding(station.name)))
+                     .arg(station.latitude, 0, 'f', 6)
+                     .arg(station.longitude, 0, 'f', 6);
         QDesktopServices::openUrl(QUrl(target));
     });
     capacityRow->addWidget(navigateButton);
@@ -239,8 +311,8 @@ ClickableFrame *createStationCard(const QString &name, const QString &distance,
     layout->addLayout(titleRow);
     layout->addWidget(detailLabel);
     layout->addLayout(capacityRow);
-    card->setClickedHandler([card, name, availability, detail] {
-        showStationDetails(card, name, availability, detail);
+    card->setClickedHandler([card, db, station] {
+        showStationDetails(card, db, station);
     });
     return card;
 }
@@ -256,33 +328,21 @@ QToolButton *createQuickAction(const QString &text, const QString &iconPath) {
     return button;
 }
 
-QWidget *createFindStationPage(const QList<StationRow> &stations) {
+QWidget *createFindStationPage(const QSqlDatabase &db,
+                               const QList<StationRow> &initialStations) {
     auto *page = new QWidget;
     page->setObjectName("page");
+    const auto stations = std::make_shared<QList<StationRow>>(initialStations);
     auto *layout = new QVBoxLayout(page);
     layout->setContentsMargins(kMargin, kMargin, kMargin, kMargin);
     layout->setSpacing(kSpacing);
 
     auto *headingRow = new QHBoxLayout;
     headingRow->addWidget(createHeading("你好，准备充电吗？"));
-    auto *location = new QPushButton("北京市海淀区");
-    location->setIcon(QIcon(":/icons/chevron-down.svg"));
-    location->setLayoutDirection(Qt::RightToLeft);
-    location->setFlat(true);
+    auto *location = new QLabel("当前位置");
+    location->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    location->setStyleSheet("color: #526473;");
     location->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Fixed);
-    auto *locationMenu = new QMenu(location);
-    locationMenu->addActions({new QAction("北京市海淀区", locationMenu),
-                              new QAction("北京市朝阳区", locationMenu),
-                              new QAction("北京市东城区", locationMenu)});
-    QObject::connect(
-      location, &QPushButton::clicked, location, [location, locationMenu] {
-          locationMenu->popup(
-            location->mapToGlobal(QPoint(0, location->height())));
-      });
-    QObject::connect(locationMenu, &QMenu::triggered, location,
-                     [location](QAction *action) {
-                         location->setText(action->text());
-                     });
     headingRow->addWidget(location);
     headingRow->addStretch(1);
     auto *refreshButton = new QToolButton;
@@ -310,21 +370,27 @@ QWidget *createFindStationPage(const QList<StationRow> &stations) {
 
     auto *quickActions = new QGridLayout;
     quickActions->setSpacing(6);
-    quickActions->addWidget(
-      createQuickAction("离我最近", ":/icons/navigation.svg"), 0, 0);
-    quickActions->addWidget(createQuickAction("快速充电", ":/icons/zap.svg"), 0,
-                            1);
-    quickActions->addWidget(createQuickAction("低价优选", ":/icons/search.svg"),
-                            0, 2);
-    quickActions->addWidget(createQuickAction("我的收藏", ":/icons/house.svg"),
-                            0, 3);
+    auto *nearestButton = createQuickAction("离我最近",
+                                            ":/icons/navigation.svg");
+    auto *fastButton = createQuickAction("快速充电", ":/icons/zap.svg");
+    auto *cheapButton = createQuickAction("低价优选", ":/icons/search.svg");
+    auto *favoriteButton = createQuickAction("我的收藏", ":/icons/house.svg");
+    quickActions->addWidget(nearestButton, 0, 0);
+    quickActions->addWidget(fastButton, 0, 1);
+    quickActions->addWidget(cheapButton, 0, 2);
+    quickActions->addWidget(favoriteButton, 0, 3);
     for (int column = 0; column < 4; ++column) {
         quickActions->setColumnStretch(column, 1);
     }
 
     auto *filterRow = new QHBoxLayout;
     auto *areaFilter = new QComboBox;
-    areaFilter->addItems({"全部区域", "海淀区", "朝阳区", "东城区"});
+    areaFilter->addItem("全部区域");
+    for (const auto &station : *stations) {
+        if (!station.region.isEmpty()
+            && areaFilter->findText(station.region) < 0)
+            areaFilter->addItem(station.region);
+    }
     filterRow->addWidget(areaFilter, 1);
     auto *sortGroup = new QButtonGroup(page);
     const QStringList sortLabels{"距离", "空闲", "价格"};
@@ -341,23 +407,84 @@ QWidget *createFindStationPage(const QList<StationRow> &stations) {
     auto *stationLayout = new QVBoxLayout(stationContent);
     stationLayout->setContentsMargins(0, 0, 0, 0);
     stationLayout->setSpacing(6);
-    if (stations.isEmpty()) {
-        stationLayout->addWidget(new QLabel("暂无电站数据，请检查数据库连接"));
-    } else {
-        for (const auto &station : stations) {
-            const QString availability = QString("空闲 %1 / %2")
-                                           .arg(station.idle)
-                                           .arg(station.total);
-            const QString detail = QString("%1 · ¥%2/度")
-                                     .arg(station.region.isEmpty()
-                                            ? station.address
-                                            : station.region)
-                                     .arg(station.price, 0, 'f', 2);
-            stationLayout->addWidget(
-              createStationCard(station.name, "", availability, detail));
+    const auto populate = [stationLayout, stations, locationInput, areaFilter,
+                           sortGroup, db] {
+        while (auto *item = stationLayout->takeAt(0)) {
+            if (auto *widget = item->widget()) widget->deleteLater();
+            delete item;
         }
-    }
-    stationLayout->addStretch(1);
+        QList<StationRow> filtered;
+        const QString query = locationInput->text().trimmed();
+        const QString area = areaFilter->currentText();
+        for (const auto &station : *stations) {
+            const bool matchesQuery = query.isEmpty()
+                                   || station.name.contains(query,
+                                                            Qt::CaseInsensitive)
+                                   || station.address.contains(
+                                     query, Qt::CaseInsensitive)
+                                   || station.region.contains(
+                                     query, Qt::CaseInsensitive);
+            const bool matchesArea = area == "全部区域"
+                                  || station.region == area;
+            if (matchesQuery && matchesArea) filtered.append(station);
+        }
+        const int sortIndex = sortGroup->checkedId();
+        std::sort(filtered.begin(), filtered.end(),
+                  [sortIndex](const auto &left, const auto &right) {
+                      if (sortIndex == 1) return left.idle > right.idle;
+                      if (sortIndex == 2) return left.price < right.price;
+                      return left.distanceKm < right.distanceKm;
+                  });
+        for (const auto &station : filtered)
+            stationLayout->addWidget(createStationCard(db, station));
+        if (filtered.isEmpty())
+            stationLayout->addWidget(new QLabel("暂无符合条件的电站"));
+        stationLayout->addStretch(1);
+    };
+    QObject::connect(locationInput, &QLineEdit::textChanged, page,
+                     [populate](const QString &) {
+                         populate();
+                     });
+    QObject::connect(searchButton, &QToolButton::clicked, page, populate);
+    QObject::connect(areaFilter, &QComboBox::currentTextChanged, page,
+                     [populate](const QString &) {
+                         populate();
+                     });
+    QObject::connect(sortGroup, &QButtonGroup::idClicked, page,
+                     [populate](int) {
+                         populate();
+                     });
+    QObject::connect(refreshButton, &QToolButton::clicked, page,
+                     [db, stations, areaFilter, populate] {
+                         *stations = loadStations(db);
+                         areaFilter->clear();
+                         areaFilter->addItem("全部区域");
+                         for (const auto &station : *stations) {
+                             if (!station.region.isEmpty()
+                                 && areaFilter->findText(station.region) < 0)
+                                 areaFilter->addItem(station.region);
+                         }
+                         populate();
+                     });
+    QObject::connect(nearestButton, &QToolButton::clicked, page,
+                     [sortGroup, populate] {
+                         sortGroup->button(0)->setChecked(true);
+                         populate();
+                     });
+    QObject::connect(fastButton, &QToolButton::clicked, page,
+                     [sortGroup, populate] {
+                         sortGroup->button(1)->setChecked(true);
+                         populate();
+                     });
+    QObject::connect(cheapButton, &QToolButton::clicked, page,
+                     [sortGroup, populate] {
+                         sortGroup->button(2)->setChecked(true);
+                         populate();
+                     });
+    QObject::connect(favoriteButton, &QToolButton::clicked, page, [page] {
+        QMessageBox::information(page, "我的收藏", "当前暂无收藏电站");
+    });
+    populate();
     auto *stationScroll = new QScrollArea;
     stationScroll->setWidgetResizable(true);
     stationScroll->setFrameShape(QFrame::NoFrame);
@@ -445,7 +572,7 @@ QWidget *createOrdersPage(const QSqlDatabase &db) {
                    "chargers c ON c.id=o.charger_id "
                    "WHERE o.user_id="
                    + QString::number(currentUserId()) + condition
-                   + " ORDER BY o.created_at DESC LIMIT 30");
+                   + " ORDER BY o.created_at DESC");
         while (query.next()) {
             const QString status = query.value(2).toString();
             const QMap<QString, QString> statusLabels{
@@ -494,6 +621,22 @@ QWidget *createOrdersPage(const QSqlDatabase &db) {
             footer->addWidget(timeLabel, 1);
             auto *detailsButton = new QPushButton("查看详情");
             detailsButton->setObjectName("orderAction");
+            const QString orderStation = query.value(0).toString();
+            const QString chargerCode = query.value(1).toString();
+            const QString orderEnergy = query.value(3).toString();
+            const double orderAmount = query.value(4).toDouble();
+            QObject::connect(detailsButton, &QPushButton::clicked, card,
+                             [card, orderStation, chargerCode, displayStatus,
+                              orderEnergy, orderAmount, displayTime] {
+                                 QMessageBox::information(
+                                   card, "订单详情",
+                                   QString("%1\n设备：%2\n状态：%3\n电量：%4 "
+                                           "kWh\n金额：¥%5\n时间：%6")
+                                     .arg(orderStation, chargerCode,
+                                          displayStatus, orderEnergy)
+                                     .arg(orderAmount, 0, 'f', 2)
+                                     .arg(displayTime));
+                             });
             footer->addWidget(detailsButton);
 
             cardLayout->addLayout(header);
@@ -600,10 +743,47 @@ QWidget *createProfilePage(const QSqlDatabase &db) {
 
     auto *summary = new QGridLayout;
     summary->setSpacing(6);
-    summary->addWidget(createSummaryItem("0.0 kWh", "本月电量"), 0, 0);
-    summary->addWidget(createSummaryItem("¥ 0.00", "本月消费"), 0, 1);
-    summary->addWidget(createSummaryItem("0", "充电次数"), 0, 2);
-    summary->addWidget(createSummaryItem("--", "最近充电"), 0, 3);
+    double monthEnergy = 0;
+    double monthSpending = 0;
+    int chargeCount = 0;
+    QString latestCharging = "--";
+    if (db.isOpen()) {
+        QSqlQuery summaryQuery(db);
+        summaryQuery.prepare(
+          "SELECT COALESCE(SUM(cs.energy_kwh), 0), "
+          "COALESCE(SUM(o.paid_amount), 0), COUNT(cs.id), MAX(cs.ended_at) "
+          "FROM charging_sessions cs LEFT JOIN orders o ON o.session_id = "
+          "cs.id "
+          "WHERE cs.user_id = :user_id AND cs.status = 'settled' "
+          "AND substr(cs.ended_at, 1, 7) = :month");
+        summaryQuery.bindValue(":user_id", currentUserId());
+        summaryQuery.bindValue(
+          ":month", QDateTime::currentDateTimeUtc().toString("yyyy-MM"));
+        if (summaryQuery.exec() && summaryQuery.next()) {
+            monthEnergy = summaryQuery.value(0).toDouble();
+            monthSpending = summaryQuery.value(1).toDouble();
+            chargeCount = summaryQuery.value(2).toInt();
+            const auto latest = summaryQuery.value(3).toString();
+            if (!latest.isEmpty()) {
+                const auto latestTime = QDateTime::fromString(latest,
+                                                              Qt::ISODate);
+                latestCharging = latestTime.isValid()
+                                 ? latestTime.toString("MM.dd HH:mm")
+                                 : latest;
+            }
+        }
+    }
+    summary->addWidget(
+      createSummaryItem(QString("%1 kWh").arg(monthEnergy, 0, 'f', 1),
+                        "本月电量"),
+      0, 0);
+    summary->addWidget(
+      createSummaryItem(QString("¥ %1").arg(monthSpending, 0, 'f', 2),
+                        "本月消费"),
+      0, 1);
+    summary->addWidget(
+      createSummaryItem(QString::number(chargeCount), "充电次数"), 0, 2);
+    summary->addWidget(createSummaryItem(latestCharging, "最近充电"), 0, 3);
     for (int column = 0; column < 4; ++column) {
         summary->setColumnStretch(column, 1);
     }
@@ -620,6 +800,73 @@ QWidget *createProfilePage(const QSqlDatabase &db) {
     auto *rechargeButton = new QPushButton("充值");
     rechargeButton->setMinimumWidth(86);
     walletLayout->addWidget(rechargeButton);
+    QObject::connect(
+      rechargeButton, &QPushButton::clicked, content,
+      [db, balanceLabel, content] {
+          bool ok = false;
+          const double amount = QInputDialog::getDouble(
+            content, "账户充值", "充值金额（元）", 100.00, 0.01, 10000.00, 2,
+            &ok);
+          if (!ok) return;
+          auto transactionDb = db;
+          if (!transactionDb.isOpen() || !transactionDb.transaction()) {
+              QMessageBox::warning(content, "充值失败",
+                                   "数据库暂不可用，请稍后重试");
+              return;
+          }
+          QSqlQuery balanceQuery(transactionDb);
+          balanceQuery.prepare("SELECT wallet_balance, version FROM users "
+                               "WHERE id = :id");
+          balanceQuery.bindValue(":id", currentUserId());
+          if (!balanceQuery.exec() || !balanceQuery.next()) {
+              transactionDb.rollback();
+              QMessageBox::warning(content, "充值失败", "无法读取账户余额");
+              return;
+          }
+          const double before = balanceQuery.value(0).toDouble();
+          const int version = balanceQuery.value(1).toInt();
+          const double after = before + amount;
+          const QString now = QDateTime::currentDateTimeUtc().toString(
+            Qt::ISODate);
+          QSqlQuery update(transactionDb);
+          update.prepare("UPDATE users SET wallet_balance = :balance, "
+                         "version = version + 1, updated_at = :updated "
+                         "WHERE id = :id AND version = :version");
+          update.bindValue(":balance", after);
+          update.bindValue(":updated", now);
+          update.bindValue(":id", currentUserId());
+          update.bindValue(":version", version);
+          const QString transactionNo = QString("RECHARGE-%1-%2")
+                                          .arg(
+                                            QDateTime::currentMSecsSinceEpoch())
+                                          .arg(currentUserId());
+          QSqlQuery insert(transactionDb);
+          insert.prepare(
+            "INSERT INTO wallet_transactions "
+            "(user_id, transaction_no, transaction_type, amount, "
+            "balance_before, balance_after, idempotency_key, "
+            "remark, created_at) VALUES "
+            "(:user_id, :transaction_no, 'recharge', :amount, "
+            ":before, :after, :idempotency_key, '用户充值', :created)");
+          insert.bindValue(":user_id", currentUserId());
+          insert.bindValue(":transaction_no", transactionNo);
+          insert.bindValue(":amount", amount);
+          insert.bindValue(":before", before);
+          insert.bindValue(":after", after);
+          insert.bindValue(":idempotency_key", transactionNo);
+          insert.bindValue(":created", now);
+          if (update.exec() && update.numRowsAffected() == 1 && insert.exec()
+              && transactionDb.commit()) {
+              balanceLabel->setText(QString("¥ %1").arg(after, 0, 'f', 2));
+              QMessageBox::information(
+                content, "充值成功",
+                QString("已充值 ¥%1").arg(amount, 0, 'f', 2));
+          } else {
+              transactionDb.rollback();
+              QMessageBox::warning(content, "充值失败",
+                                   "充值未完成，请稍后重试");
+          }
+      });
 
     layout->addWidget(account);
     layout->addSpacing(12);
@@ -651,7 +898,7 @@ UserMainWindow::UserMainWindow(QWidget *parent) : QMainWindow(parent) {
     rootLayout->setSpacing(0);
     pages_ = new QStackedWidget;
     const auto db = openDatabase();
-    pages_->addWidget(createFindStationPage(loadStations(db)));
+    pages_->addWidget(createFindStationPage(db, loadStations(db)));
     pages_->addWidget(createOrdersPage(db));
     auto *profilePage = createProfilePage(db);
     pages_->addWidget(profilePage);

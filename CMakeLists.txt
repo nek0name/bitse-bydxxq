@@ -7,10 +7,13 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_AUTORCC ON)
 
-find_package(Qt6 6.2 REQUIRED COMPONENTS Widgets Sql)
-
 option(BUILD_USER_APP "Build the charging user application" ON)
 option(BUILD_ADMIN_APP "Build the operations admin application" ON)
+
+find_package(Qt6 6.2 REQUIRED COMPONENTS Widgets)
+if(BUILD_USER_APP)
+    find_package(Qt6 6.2 REQUIRED COMPONENTS Sql)
+endif()
 
 # for clangd
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
