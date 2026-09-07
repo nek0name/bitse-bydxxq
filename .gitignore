@@ -1,15 +1,11 @@
-# ==========================================
 # Build
-# ==========================================
 build*/
 cmake-build-*/
 bin/
 /lib/
 logs/
 
-# ==========================================
 # CMake
-# ==========================================
 CMakeCache.txt
 CMakeFiles/
 CMakeScripts/
@@ -22,9 +18,7 @@ install_manifest.txt
 compile_commands.json
 qtcsettings.cmake
 
-# ==========================================
 # Qt Creator & VSCode & IDE etc
-# ==========================================
 *.user
 *.user.*
 *.pro.user*
@@ -34,9 +28,7 @@ CMakeLists.txt.user*
 *.sln
 *.vcxproj.user
 
-# ==========================================
 # Compile & Binary
-# ==========================================
 *.o
 *.obj
 *.a
@@ -57,9 +49,7 @@ qrc_*.cpp
 *_resource.rc
 *.qm
 
-# ==========================================
 # System Cache
-# ==========================================
 .DS_Store
 Thumbs.db
 *~
@@ -69,28 +59,23 @@ Thumbs.db
 *.rej
 *.core
 *.db
+*.db.bak
 *.db-wal
 *.db-shm
 
-# ==========================================
 # Node
-# ==========================================
 node_modules/
 dist/
 .vite/
 work/
 
-# ==========================================
 # Python
-# ==========================================
 .venv/
 __pycache__/
 *.pyc
 ml/models/*.pkl
 
-# ==========================================
 # Datasets
-# ==========================================
 reference/datasets/**/*
 !reference/datasets/**/
 !reference/datasets/**/source.md

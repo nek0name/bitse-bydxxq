@@ -38,6 +38,9 @@ echarts.use([
   VisualMapComponent,
   CanvasRenderer,
 ])
+echarts.registerTheme('charging', {
+  textStyle: { fontFamily: 'HarmonyOS Sans SC' },
+})
 export const { init, graphic } = echarts
 export type ChartInstance = ReturnType<typeof init>
 export type { ECElementEvent as ChartEvent } from 'echarts/core'

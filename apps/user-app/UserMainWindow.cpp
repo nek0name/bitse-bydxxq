@@ -1,12 +1,16 @@
 #include "UserMainWindow.h"
+#include "Appearance.h"
 #include "MobileController.h"
 
 #include <QComboBox>
 #include <QIcon>
 #include <QLabel>
+#include <QPalette>
+#include <QPixmap>
 #include <QPushButton>
 #include <QQmlContext>
 #include <QQuickWidget>
+#include <QRegularExpression>
 #include <QStackedWidget>
 #include <QUrlQuery>
 #include <QVBoxLayout>
@@ -41,7 +45,11 @@ UserMainWindow::UserMainWindow(QWidget *parent)
   setMaximumWidth(560);
   m_quick->setObjectName("mobileQuickView");
   m_quick->setResizeMode(QQuickWidget::SizeRootObjectToView);
-  m_quick->setClearColor(QColor("#f6f7f3"));
+  m_quick->rootContext()->setContextProperty("appearance",
+                                             Appearance::instance());
+  connect(Appearance::instance(), &Appearance::changed, this,
+          &UserMainWindow::applyAppearance);
+  applyAppearance();
   m_quick->rootContext()->setContextProperty("mobile", m_controller);
   m_quick->setSource(QUrl("qrc:/qml/Main.qml"));
   m_pages->addWidget(m_quick);
@@ -55,32 +63,58 @@ UserMainWindow::~UserMainWindow() {
   delete m_quick;
 }
 
+void UserMainWindow::applyAppearance() {
+  auto *appearance = Appearance::instance();
+  const auto colors = appearance->colors();
+  m_quick->setClearColor(colors.value("paper").value<QColor>());
+  if (!m_mapPage) return;
+  QString style = R"(
+    QWidget#navigationPage { background: @paper; color: @ink; }
+    QPushButton { border: none; border-radius: 8px; padding: 8px 16px;
+      background: transparent; color: @ink; font-size: 14px; font-weight: 500; }
+    QPushButton:pressed { background: @primarySoftPressed; }
+    QPushButton:focus { background: @primaryLight; }
+    QPushButton:disabled { background: @disabled; color: @disabledText; }
+    QPushButton#mapBackButton { padding: 0; }
+    QPushButton#routeButton { background: @primary; color: @onPrimary; }
+    QPushButton#routeButton:pressed { background: @primaryPressed; }
+    QPushButton#routeButton:focus { background: @primaryPressed; }
+    QComboBox { border: none; border-radius: 8px; padding: 8px 16px;
+      background: @card; color: @ink; font-size: 14px; }
+    QComboBox:focus { background: @primaryLight; }
+    QComboBox::drop-down { width: 40px; border: none; }
+    QComboBox QAbstractItemView { background: @card; color: @ink;
+      selection-background-color: @primaryLight; selection-color: @ink; }
+    QComboBox QAbstractItemView::item { min-height: 48px; }
+    QLabel { background: transparent; color: @ink; }
+    QLabel#mapStatus { color: @muted; }
+  )";
+  static const QRegularExpression token("@([A-Za-z]+)");
+  auto matches = token.globalMatch(style);
+  QList<QRegularExpressionMatch> found;
+  while (matches.hasNext()) found.append(matches.next());
+  for (auto it = found.crbegin(); it != found.crend(); ++it)
+    style.replace(it->capturedStart(), it->capturedLength(),
+                  colors.value(it->captured(1)).value<QColor>().name());
+  m_mapPage->setStyleSheet(style);
+  auto palette = m_mapPage->palette();
+  palette.setColor(QPalette::WindowText, colors.value("ink").value<QColor>());
+  palette.setColor(QPalette::Text, colors.value("ink").value<QColor>());
+  palette.setColor(QPalette::ButtonText, colors.value("ink").value<QColor>());
+  palette.setColor(QPalette::Base, colors.value("card").value<QColor>());
+  palette.setColor(QPalette::Button, colors.value("card").value<QColor>());
+  m_mapPage->setPalette(palette);
+  const auto source = appearance->iconSource(
+    ":/icons/arrow-left.svg", colors.value("ink").value<QColor>());
+  QPixmap icon;
+  icon.loadFromData(QByteArray::fromBase64(source.section(',', 1).toLatin1()),
+                    "SVG");
+  m_mapPage->findChild<QPushButton *>("mapBackButton")->setIcon(QIcon(icon));
+}
+
 void UserMainWindow::createMapPage() {
   m_mapPage = new QWidget(m_pages);
   m_mapPage->setObjectName("navigationPage");
-  m_mapPage->setStyleSheet(
-    "QWidget#navigationPage { background: #f6f7f3; color: #192e24; }"
-    "QPushButton { border: 2px solid transparent; border-radius: 16px; "
-    "padding: 8px 16px; background: #e5efe7; color: #245b43; font-size: 14px; "
-    "font-weight: 500; }"
-    "QPushButton:pressed { background: #d4e4d5; }"
-    "QPushButton:focus { border-color: #245b43; }"
-    "QPushButton:disabled { background: #e2e7df; color: #879286; }"
-    "QPushButton#mapBackButton { padding: 0; border-radius: 24px; background: "
-    "transparent; }"
-    "QPushButton#mapBackButton:pressed { background: #d4e4d5; }"
-    "QPushButton#routeButton { background: #245b43; color: white; }"
-    "QPushButton#routeButton:pressed { background: #174a33; }"
-    "QPushButton#routeButton:focus { border-color: #d9ee89; }"
-    "QComboBox { border: 1px solid #e0e7de; border-radius: 16px; padding: 8px "
-    "16px; "
-    "background: white; color: #192e24; font-size: 14px; }"
-    "QComboBox:focus { border: 2px solid #245b43; }"
-    "QComboBox::drop-down { width: 40px; border: none; }"
-    "QComboBox::down-arrow { image: url(:/icons/chevron-down.svg); width: "
-    "24px; height: 24px; }"
-    "QComboBox QAbstractItemView::item { min-height: 48px; }"
-    "QLabel { background: transparent; color: #192e24; }");
   auto *layout = new QVBoxLayout(m_mapPage);
   layout->setContentsMargins(16, 0, 16, 16);
   layout->setSpacing(16);
@@ -132,7 +166,7 @@ void UserMainWindow::createMapPage() {
   m_mapStatus = new QLabel(m_mapPage);
   m_mapStatus->setObjectName("mapStatus");
   m_mapStatus->setWordWrap(true);
-  m_mapStatus->setStyleSheet("font-size: 12px; color: #65746a;");
+  m_mapStatus->setStyleSheet("font-size: 12px;");
   layout->addWidget(m_mapStatus);
   m_map = new QWebEngineView(m_mapPage);
   m_map->setObjectName("tencentMapView");
@@ -157,6 +191,7 @@ void UserMainWindow::createMapPage() {
     m_mapStatus->setVisible(!success);
   });
   m_pages->addWidget(m_mapPage);
+  applyAppearance();
 }
 
 void UserMainWindow::showNavigation(const QVariantMap &destination,

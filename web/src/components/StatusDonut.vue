@@ -5,13 +5,12 @@ import type { ChargerStatusItem, ChargerStatusKey } from '../types/dashboard'
 const props = defineProps<{ data: ChargerStatusItem[] }>()
 
 const colors: Record<ChargerStatusKey, string> = {
-  idle: '#39e58c',
-  reserved: '#43b8ff',
-  charging: '#ffb84d',
-  fault: '#ff5f72',
-  offline: '#69758c',
-  maintenance: '#9d7cff',
-  restarting: '#9d7cff',
+  idle: '#8ABCAA',
+  reserved: '#A89FDB',
+  charging: '#FFBE73',
+  fault: '#FF617A',
+  offline: '#586B82',
+  restarting: '#D8D4ED',
 }
 
 const chartElement = useChart(() => {
@@ -24,7 +23,7 @@ const chartElement = useChart(() => {
       itemWidth: 8,
       itemHeight: 8,
       itemGap: 12,
-      textStyle: { color: '#9aa9bd', fontSize: 11 },
+      textStyle: { color: '#AAA8B8', fontSize: 11 },
     },
     series: [
       {
@@ -32,12 +31,12 @@ const chartElement = useChart(() => {
         radius: ['54%', '76%'],
         center: ['50%', '43%'],
         avoidLabelOverlap: true,
-        itemStyle: { borderColor: '#0b1728', borderWidth: 3 },
+        itemStyle: { borderColor: '#23242F', borderWidth: 3 },
         label: { show: false },
         data: props.data.map((item) => ({
           name: item.label,
           value: item.value,
-          itemStyle: { color: colors[item.key] ?? '#69758c' },
+          itemStyle: { color: colors[item.key] },
         })),
       },
     ],
@@ -49,7 +48,7 @@ const chartElement = useChart(() => {
             top: '36%',
             style: {
               text: String(props.data.reduce((sum, item) => sum + item.value, 0)),
-              fill: '#f2f7ff',
+              fill: '#F0EFF5',
               fontSize: 28,
               fontWeight: 700,
             },
@@ -58,7 +57,7 @@ const chartElement = useChart(() => {
             type: 'text',
             left: 'center',
             top: '51%',
-            style: { text: '总电桩', fill: '#8090a7', fontSize: 11 },
+            style: { text: '总电桩', fill: '#AAA8B8', fontSize: 11 },
           },
         ]
       : [
@@ -66,7 +65,7 @@ const chartElement = useChart(() => {
             type: 'text',
             left: 'center',
             top: '45%',
-            style: { text: '暂无数据', fill: '#8090a7', fontSize: 13 },
+            style: { text: '暂无数据', fill: '#AAA8B8', fontSize: 13 },
           },
         ],
   }

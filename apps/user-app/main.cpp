@@ -1,10 +1,10 @@
+#include "Fonts.h"
 #include "MobileController.h"
 #include "UserMainWindow.h"
 
 #include <QApplication>
 #include <QCommandLineParser>
 #include <QDebug>
-#include <QFontDatabase>
 #include <QQuickItem>
 #include <QQuickWidget>
 #include <QQuickWindow>
@@ -18,13 +18,7 @@ int main(int argc, char *argv[]) {
   QApplication::setOrganizationName("ChargingPlatform");
   if (QGuiApplication::platformName() == "offscreen")
     QQuickWindow::setGraphicsApi(QSGRendererInterface::Software);
-  for (const auto &family : {"Noto Sans CJK SC", "WenQuanYi Micro Hei",
-                             "Microsoft YaHei", "Noto Sans"}) {
-    if (QFontDatabase::families().contains(QString::fromLatin1(family))) {
-      application.setFont(QFont(QString::fromLatin1(family), 10));
-      break;
-    }
-  }
+  loadFonts();
   QCommandLineParser parser;
   parser.setApplicationDescription(
     "智充出行手机交互模拟客户端。业务由独立 charging-server 提供。");
@@ -32,12 +26,13 @@ int main(int argc, char *argv[]) {
   parser.addOption({"smoke-test", "启动并验证 QML 加载，随后退出。"});
   parser.addOption({"screenshot", "将当前窗口保存到指定 PNG 文件。", "path"});
   parser.addOption({"phone", "演示启动时登录指定手机号。", "phone"});
-  parser.addOption(
-    {"page", "截图前打开 home / orders / profile 页面。", "page", "home"});
+  parser.addOption({"page",
+                    "截图前打开 home / orders / profile / settings 页面。",
+                    "page", "home"});
   parser.process(application);
-  if (!QStringList{"home", "orders", "profile"}.contains(
+  if (!QStringList{"home", "orders", "profile", "settings"}.contains(
         parser.value("page"))) {
-    qCritical() << "--page must be home, orders, or profile";
+    qCritical() << "--page must be home, orders, profile, or settings";
     return 2;
   }
 
@@ -52,9 +47,15 @@ int main(int argc, char *argv[]) {
                        if (!*pageOpened && window.controller()->signedIn()) {
                          *pageOpened = true;
                          QTimer::singleShot(400, &window, [&] {
-                           if (window.controller()->activeOrder().isEmpty())
-                             window.controller()->selectTab(
-                               parser.value("page"));
+                           if (window.controller()->activeOrder().isEmpty()) {
+                             if (parser.value("page") == "settings") {
+                               window.controller()->selectTab("profile");
+                               window.controller()->navigate("settings");
+                             } else {
+                               window.controller()->selectTab(
+                                 parser.value("page"));
+                             }
+                           }
                          });
                        }
                      });
@@ -70,8 +71,8 @@ int main(int argc, char *argv[]) {
     // Load every screen, including those behind login, so missing QML imports
     // or component syntax cannot hide until a user reaches a later step.
     const QStringList pages = {
-      "login",  "home",    "station",  "charge",   "settlement", "receipt",
-      "orders", "profile", "location", "recharge", "editProfile"};
+      "login",  "home",    "station",  "charge",   "settlement",  "receipt",
+      "orders", "profile", "location", "recharge", "editProfile", "settings"};
     auto *timer = new QTimer(&application);
     auto index = std::make_shared<int>(0);
     QObject::connect(

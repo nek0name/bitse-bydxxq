@@ -1,3 +1,6 @@
+#include "ApiClient.h"
+#include "Appearance.h"
+#include "Fonts.h"
 #include "MobileController.h"
 #include "UserMainWindow.h"
 
@@ -6,18 +9,25 @@
 #include <QDir>
 #include <QFontDatabase>
 #include <QLabel>
+#include <QMetaProperty>
 #include <QPushButton>
+#include <QQmlComponent>
+#include <QQmlEngine>
 #include <QQuickItem>
 #include <QQuickWidget>
 #include <QQuickWindow>
 #include <QRandomGenerator>
+#include <QScopedPointer>
 #include <QSet>
+#include <QSettings>
 #include <QSignalSpy>
+#include <QTemporaryDir>
 #include <QWebEngineView>
 #include <QtTest>
 
 class MobileFlowTest final : public QObject {
   Q_OBJECT
+  QTemporaryDir appearanceDirectory;
 
   QObject *item(UserMainWindow &window, const char *name) {
     QSet<QObject *> visited;
@@ -40,6 +50,8 @@ class MobileFlowTest final : public QObject {
   }
 
   void click(UserMainWindow &window, const char *name) {
+    // Loader releases the previous screen with deleteLater().
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
     auto *button = item(window, name);
     QVERIFY2(button, name);
     QVERIFY2(button->property("enabled").toBool(), name);
@@ -63,6 +75,19 @@ class MobileFlowTest final : public QObject {
       visited.insert(visual);
       if (visual->isVisible()
           && visual->window() == window.quickView()->quickWindow()) {
+        if (visual->property("variant").toString() == "primary"
+            && visual->isEnabled()) {
+          QCOMPARE(visual->property("textColor").value<QColor>(),
+                   QColor(Qt::white));
+          auto *contentItem = visual->property("contentItem")
+                                .value<QQuickItem *>();
+          QVERIFY(contentItem);
+          for (auto *child : contentItem->childItems()) {
+            if (child->property("text").isValid())
+              QCOMPARE(child->property("color").value<QColor>(),
+                       QColor(Qt::white));
+          }
+        }
         if (visual->metaObject()->indexOfSignal("clicked()") >= 0) {
           QVERIFY2(visual->width() >= 48 && visual->height() >= 48,
                    qPrintable("Touch target smaller than 48: "
@@ -110,8 +135,10 @@ class MobileFlowTest final : public QObject {
   }
 
   void capture(UserMainWindow &window, const QString &name) {
-    if (auto *toast = item(window, "toastPopup"))
+    if (auto *toast = item(window, "toastPopup")) {
       QMetaObject::invokeMethod(toast, "close");
+      QTRY_VERIFY(!toast->property("visible").toBool());
+    }
     QTest::qWait(100);
     verifyLayout(window);
     const QString directory = qEnvironmentVariable("CHARGING_UI_ARTIFACT_DIR");
@@ -124,6 +151,284 @@ class MobileFlowTest final : public QObject {
   }
 
 private slots:
+  void initTestCase() {
+    QVERIFY(appearanceDirectory.isValid());
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope,
+                       appearanceDirectory.path());
+    Appearance::instance()->setMode("light");
+    QCOMPARE(QApplication::font().family(), QString("HarmonyOS Sans SC"));
+    QVERIFY(QFontDatabase::families().contains("HarmonyOS Sans SC"));
+  }
+
+  void appearanceSettings() {
+    UserMainWindow window;
+    window.resize(360, 800);
+    window.show();
+    auto *appearance = Appearance::instance();
+    window.controller()->navigate("settings");
+    QTRY_VERIFY(item(window, "settingsPage"));
+    click(window, "appearanceMode_dark");
+    QVERIFY(appearance->dark());
+    QCOMPARE(
+      window.quickView()->rootObject()->property("color").value<QColor>(),
+      appearance->colors()["paper"].value<QColor>());
+    click(window, "primaryColor_1");
+    click(window, "secondaryColor_2");
+    QCOMPARE(appearance->primaryColor(), QColor("#3867A6"));
+    QCOMPARE(appearance->secondaryColor(), QColor("#287B73"));
+    QVERIFY(item(window, "primaryColor_1")->property("selected").toBool());
+    QVERIFY(item(window, "secondaryColor_2")->property("selected").toBool());
+    capture(window, "12-settings-dark");
+    click(window, "appearanceMode_light");
+    QVERIFY(!appearance->dark());
+    capture(window, "12-settings-light");
+    QSettings saved(QSettings::IniFormat, QSettings::UserScope,
+                    "ChargingPlatform", "Appearance");
+    QCOMPARE(saved.value("mode").toString(), QString("light"));
+    QCOMPARE(QColor(saved.value("primaryColor").toString()), QColor("#3867A6"));
+    click(window, "appearanceMode_system");
+    QCOMPARE(appearance->mode(), QString("system"));
+    click(window, "backButton");
+    QCOMPARE(window.controller()->page(), QString("login"));
+    appearance->setMode("light");
+    appearance->setPrimaryColor(QColor("#6259CA"));
+    appearance->setSecondaryColor(QColor("#8E86B8"));
+  }
+
+  void networkFeedback() {
+    if (qEnvironmentVariableIsEmpty("CHARGING_SERVER_URL"))
+      QSKIP("Set CHARGING_SERVER_URL to a disposable test service");
+    UserMainWindow window;
+    window.show();
+    auto *controller = window.controller();
+    auto *api = controller->findChild<ApiClient *>();
+    QVERIFY(api);
+    const auto serviceUrl = api->baseUrl();
+    api->setBaseUrl("http://127.0.0.1:1");
+    controller->navigate("home");
+    QTest::qWait(100);
+    auto *loader = qobject_cast<QQuickItem *>(item(window, "pageLoader"));
+    QVERIFY(loader);
+    const auto pageY = loader->y();
+    const auto pageHeight = loader->height();
+    controller->notification("已更新");
+    controller->refreshStations();
+    QTRY_VERIFY_WITH_TIMEOUT(!controller->loadingStations(), 10000);
+    QVERIFY(!controller->error().isEmpty());
+    auto *banner = item(window, "errorBanner");
+    auto *empty = item(window, "stationEmptyState");
+    QVERIFY(banner && empty);
+    QTRY_VERIFY(banner->property("opacity").toReal() > 0.99);
+    QCOMPARE(loader->y(), pageY);
+    QCOMPARE(loader->height(), pageHeight);
+    auto *toast = item(window, "toastPopup");
+    QVERIFY(toast);
+    QTRY_VERIFY(!toast->property("visible").toBool());
+    QVERIFY(!empty->property("visible").toBool());
+    int messages = 0;
+    int banners = 0;
+    std::function<void(QQuickItem *)> countMessages = [&](QQuickItem *visual) {
+      if (visual->objectName() == "errorBanner") ++banners;
+      if (visual->isVisible()
+          && visual->property("text").toString() == controller->error())
+        ++messages;
+      for (auto *child : visual->childItems()) countMessages(child);
+    };
+    countMessages(window.quickView()->rootObject());
+    QCOMPARE(messages, 1);
+    QCOMPARE(banners, 1);
+    QSignalSpy errors(controller, &MobileController::errorChanged);
+    controller->refreshStations();
+    QTRY_VERIFY_WITH_TIMEOUT(!controller->loadingStations(), 10000);
+    QCOMPARE(errors.size(), 0);
+    api->setBaseUrl(serviceUrl);
+    controller->refreshStations();
+    QTRY_VERIFY_WITH_TIMEOUT(!controller->loadingStations(), 10000);
+    QVERIFY(controller->error().isEmpty());
+    QTRY_VERIFY(!banner->property("visible").toBool());
+    QCOMPARE(loader->y(), pageY);
+    QCOMPARE(loader->height(), pageHeight);
+    QVERIFY(!controller->stations().isEmpty());
+    controller->login("123");
+    QTRY_VERIFY(banner->property("opacity").toReal() > 0.99);
+    const auto bannerY = banner->property("y").toReal();
+    controller->recharge("invalid");
+    QCOMPARE(banner->property("message").toString(), controller->error());
+    QCOMPARE(banner->property("y").toReal(), bannerY);
+    QCOMPARE(loader->y(), pageY);
+    QCOMPARE(loader->height(), pageHeight);
+  }
+
+  void pagedOrders() {
+    if (qEnvironmentVariableIsEmpty("CHARGING_SERVER_URL"))
+      QSKIP("Set CHARGING_SERVER_URL to a disposable test service");
+    UserMainWindow window;
+    window.show();
+    auto *controller = window.controller();
+    controller->login("13800000001");
+    QTRY_VERIFY_WITH_TIMEOUT(controller->signedIn() && !controller->busy(),
+                             10000);
+    controller->selectTab("orders");
+    QTRY_VERIFY_WITH_TIMEOUT(!controller->loadingOrders(), 10000);
+    QCOMPARE(controller->orders()->rowCount(), 30);
+    QVERIFY(controller->hasMoreOrders());
+    const auto firstId = controller->orders()
+                           ->index(0, 0)
+                           .data(Qt::UserRole)
+                           .toMap()
+                           .value("id");
+    controller->loadMoreOrders();
+    QTRY_VERIFY_WITH_TIMEOUT(!controller->loadingOrders(), 10000);
+    QCOMPARE(controller->orders()->rowCount(), 60);
+    QCOMPARE(
+      controller->orders()->index(0, 0).data(Qt::UserRole).toMap().value("id"),
+      firstId);
+    QTest::qWait(100);
+    int cards = 0;
+    std::function<void(QQuickItem *)> countCards = [&](QQuickItem *visual) {
+      if (visual->objectName().startsWith("orderCard_")) ++cards;
+      for (auto *child : visual->childItems()) countCards(child);
+    };
+    countCards(window.quickView()->rootObject());
+    QVERIFY(cards > 0 && cards < 15);
+    QSignalSpy updates(controller, &MobileController::ordersChanged);
+    controller->loadMoreOrders();
+    controller->loadMoreOrders();
+    QCOMPARE(controller->orders()->rowCount(), 60);
+    QCOMPARE(updates.size(), 1);
+    QTRY_VERIFY_WITH_TIMEOUT(!controller->loadingOrders(), 10000);
+    QCOMPARE(controller->orders()->rowCount(), 90);
+    QCOMPARE(updates.size(), 2);
+
+    auto *ordersPage = item(window, "ordersPage");
+    QVERIFY(ordersPage);
+    ordersPage->setProperty("contentY", 600);
+    const auto scrollOffset = ordersPage->property("contentY").toReal()
+                            - ordersPage->property("originY").toReal();
+    controller->openOrder(firstId.toInt());
+    QTRY_COMPARE_WITH_TIMEOUT(controller->page(), QString("receipt"), 10000);
+    QTRY_VERIFY(!controller->busy());
+    click(window, "receiptDoneButton");
+    QTRY_COMPARE(controller->page(), QString("orders"));
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    ordersPage = item(window, "ordersPage");
+    QVERIFY(ordersPage);
+    QTRY_VERIFY(qAbs(ordersPage->property("contentY").toReal()
+                     - ordersPage->property("originY").toReal() - scrollOffset)
+                < 1);
+    QCOMPARE(controller->orders()->rowCount(), 90);
+    QVERIFY(!controller->loadingOrders());
+
+    controller->refresh();
+    controller->refresh();
+    QCOMPARE(controller->orders()->rowCount(), 90);
+    QVERIFY(controller->refreshingOrders());
+    auto *indicator = item(window, "orderRefreshIndicator");
+    QVERIFY(indicator && indicator->property("visible").toBool());
+    QTRY_VERIFY_WITH_TIMEOUT(!controller->loadingOrders(), 10000);
+    QCOMPARE(controller->orders()->rowCount(), 30);
+    QVERIFY(!indicator->property("visible").toBool());
+    controller->filterOrders("paid");
+    QTRY_VERIFY_WITH_TIMEOUT(!controller->loadingOrders(), 10000);
+    QCOMPARE(controller->orders()->rowCount(), 30);
+    for (int row = 0; row < controller->orders()->rowCount(); ++row)
+      QCOMPARE(controller->orders()
+                 ->index(row, 0)
+                 .data(Qt::UserRole)
+                 .toMap()
+                 .value("status")
+                 .toString(),
+               QString("paid"));
+    controller->filterOrders("all");
+    controller->filterOrders("active");
+    QTRY_VERIFY_WITH_TIMEOUT(!controller->loadingOrders(), 10000);
+    QCOMPARE(controller->orderFilter(), QString("active"));
+    QCOMPARE(controller->orders()->rowCount(), 0);
+    QVERIFY(!controller->hasMoreOrders());
+  }
+
+  void toastAndNumbers() {
+    UserMainWindow window;
+    window.show();
+    auto *view = window.quickView();
+    auto *root = view->rootObject();
+    QVERIFY(root);
+    QSignalSpy warnings(view->engine(), &QQmlEngine::warnings);
+    QQmlComponent target(view->engine());
+    target.setData(R"(
+      import QtQuick
+      MouseArea {
+        width: 120
+        height: 80
+        anchors.centerIn: parent
+        z: 9
+        property int clicks: 0
+        onClicked: clicks += 1
+      }
+    )",
+                   QUrl());
+    QScopedPointer<QObject> targetObject(target.create());
+    QVERIFY2(targetObject, qPrintable(target.errorString()));
+    auto *hitTarget = qobject_cast<QQuickItem *>(targetObject.data());
+    hitTarget->setParentItem(root);
+    window.controller()->notification("已更新");
+    auto *toast = qobject_cast<QQuickItem *>(item(window, "toastPopup"));
+    QVERIFY(toast);
+    QTRY_VERIFY(toast->opacity() > 0.99);
+    const auto center = toast->mapToItem(
+      root, QPointF(toast->width() / 2, toast->height() / 2));
+    QVERIFY(qAbs(center.x() - root->width() / 2) < 1);
+    QVERIFY(qAbs(center.y() - root->height() / 2) < 1);
+    QTest::mouseClick(view, Qt::LeftButton, Qt::NoModifier, center.toPoint());
+    QCOMPARE(hitTarget->property("clicks").toInt(), 1);
+
+    QQmlComponent component(view->engine(), QUrl("qrc:/qml/RollingNumber.qml"));
+    QScopedPointer<QObject> number(component.create());
+    QVERIFY2(number, qPrintable(component.errorString()));
+    auto *numberItem = qobject_cast<QQuickItem *>(number.data());
+    numberItem->setParentItem(root);
+    number->setProperty("decimals", 2);
+    number->setProperty("value", 12.34);
+    QTest::qWait(320);
+    QCOMPARE(number->property("formatted").toString(), QString("12.34"));
+    number->setProperty("value", 5.67);
+    QTest::qWait(320);
+    QCOMPARE(number->property("formatted").toString(), QString("5.67"));
+    bool displayed = false;
+    for (auto *child : numberItem->childItems()) {
+      if (child->opacity() > 0.99
+          && child->property("text").toString() == "5.67") {
+        QCOMPARE(child->y(), 0);
+        QCOMPARE(numberItem->implicitWidth(), child->implicitWidth());
+        displayed = true;
+      }
+    }
+    QVERIFY(displayed);
+    QCOMPARE(warnings.size(), 0);
+  }
+
+  void incrementalOrders() {
+    OrderListModel model;
+    QSignalSpy reset(&model, &QAbstractItemModel::modelReset);
+    QSignalSpy inserted(&model, &QAbstractItemModel::rowsInserted);
+    const QVariantList first = {QVariantMap{{"id", 3}}, QVariantMap{{"id", 2}}};
+    model.replace(first);
+    QPersistentModelIndex firstIndex(model.index(0, 0));
+    model.append({QVariantMap{{"id", 1}}});
+    QCOMPARE(model.rowCount(), 3);
+    QCOMPARE(reset.size(), 1);
+    QCOMPARE(inserted.size(), 1);
+    QVERIFY(firstIndex.isValid());
+    QCOMPARE(firstIndex.data(Qt::UserRole).toMap().value("id").toInt(), 3);
+    model.append({});
+    QCOMPARE(inserted.size(), 1);
+    model.replace({QVariantMap{{"id", 9}}});
+    QVERIFY(!firstIndex.isValid());
+    QCOMPARE(model.rowCount(), 1);
+    model.replace({QVariantMap{{"id", 9}}});
+    QCOMPARE(reset.size(), 2);
+  }
+
   void embeddedNavigation() {
     if (qEnvironmentVariable("CHARGING_UI_TEST_MAP") != "1")
       QSKIP("Set CHARGING_UI_TEST_MAP=1 with a graphical display for the live "
@@ -216,6 +521,41 @@ private slots:
     QTRY_VERIFY_WITH_TIMEOUT(!controller->stations().isEmpty(), 10000);
     QCOMPARE(controller->page(), QString("home"));
     capture(window, "02-home");
+    Appearance::instance()->setMode("dark");
+    capture(window, "02-home-dark");
+    Appearance::instance()->setMode("light");
+    QVERIFY(!item(window, "stationCard_0"));
+    auto *recommendation = item(window, "recommendedStationLoader");
+    QVERIFY(recommendation);
+    QVERIFY(!recommendation->property("active").toBool());
+    QVERIFY(!recommendation->property("item").value<QObject *>());
+    const auto
+      firstId = controller->stations().first().toMap().value("id").toInt();
+    auto *stationCard = item(
+      window, qPrintable("stationCard_" + QString::number(firstId)));
+    QVERIFY(stationCard);
+    const int highlightedIndex = stationCard->metaObject()->indexOfProperty(
+      "highlighted");
+    QVERIFY(highlightedIndex >= 0);
+    const auto highlighted = stationCard->metaObject()->property(
+      highlightedIndex);
+    QVERIFY(highlighted.isWritable());
+    QVERIFY(highlighted.write(stationCard, true));
+    QCOMPARE(stationCard->property("highlighted").toBool(), true);
+    verifyLayout(window);
+    QVERIFY(highlighted.write(stationCard, false));
+
+    auto *homeTab = qobject_cast<QQuickItem *>(item(window, "tab_home"));
+    QVERIFY(homeTab);
+    QSignalSpy pageChanges(controller, &MobileController::pageChanged);
+    const auto homeCenter = homeTab->mapToItem(
+      window.quickView()->rootObject(),
+      QPointF(homeTab->width() / 2, homeTab->height() / 2));
+    QTest::mouseClick(window.quickView(), Qt::LeftButton, Qt::NoModifier,
+                      homeCenter.toPoint());
+    QCOMPARE(controller->page(), QString("home"));
+    QCOMPARE(homeTab->property("highlighted").toBool(), true);
+    QCOMPARE(pageChanges.count(), 0);
 
     controller->selectTab("profile");
     click(window, "walletRechargeButton");
@@ -233,6 +573,9 @@ private slots:
       controller->user().value("balanceCents").toLongLong(), 10001LL, 10000);
     QTRY_COMPARE(controller->page(), QString("profile"));
     capture(window, "03-profile");
+    Appearance::instance()->setMode("dark");
+    capture(window, "03-profile-dark");
+    Appearance::instance()->setMode("light");
 
     controller->navigate("editProfile");
     capture(window, "03b-edit-profile");
@@ -282,6 +625,9 @@ private slots:
     const auto remaining = countdown->property("text").toString();
     QTRY_VERIFY_WITH_TIMEOUT(
       countdown->property("text").toString() != remaining, 2000);
+    controller->selectTab("home");
+    click(window, "activeOrderBanner");
+    QCOMPARE(controller->page(), QString("charge"));
     click(window, "cancelReservationButton");
     click(window, "confirmOrderActionButton");
     QTRY_COMPARE_WITH_TIMEOUT(
@@ -343,12 +689,31 @@ private slots:
     capture(recovery, "08-receipt");
     click(recovery, "receiptDoneButton");
     QTRY_COMPARE(recovery.controller()->page(), QString("orders"));
-    QTRY_COMPARE_WITH_TIMEOUT(recovery.controller()->orders().size(), 2, 10000);
+    QTRY_COMPARE_WITH_TIMEOUT(recovery.controller()->orders()->rowCount(), 2,
+                              10000);
     capture(recovery, "09-orders");
+    auto *ordersPage = item(recovery, "ordersPage");
+    QVERIFY(ordersPage);
+    const auto paidCardName = "orderCard_"
+                            + recovery.controller()
+                                ->viewedOrder()
+                                .value("id")
+                                .toString();
+    recovery.controller()->filterOrders("active");
+    QTRY_VERIFY(!recovery.controller()->loadingOrders());
+    QCOMPARE(recovery.controller()->orders()->rowCount(), 0);
+    recovery.controller()->filterOrders("paid");
+    QTRY_VERIFY(!recovery.controller()->loadingOrders());
+    QCOMPARE(recovery.controller()->orders()->rowCount(), 1);
+    QTRY_VERIFY(item(recovery, qPrintable(paidCardName)));
+    recovery.controller()->filterOrders("all");
+    QTRY_VERIFY(!recovery.controller()->loadingOrders());
+    QCOMPARE(recovery.controller()->orders()->rowCount(), 2);
     recovery.controller()->selectTab("profile");
     click(recovery, "logoutButton");
     click(recovery, "confirmLogoutButton");
     QTRY_VERIFY_WITH_TIMEOUT(!recovery.controller()->signedIn(), 10000);
+    QVERIFY(!recovery.controller()->loadingStations());
     QCOMPARE(recovery.controller()->page(), QString("login"));
   }
 };
@@ -358,8 +723,7 @@ int main(int argc, char **argv) {
   QApplication application(argc, argv);
   if (QGuiApplication::platformName() == "offscreen")
     QQuickWindow::setGraphicsApi(QSGRendererInterface::Software);
-  if (QFontDatabase::families().contains("Noto Sans CJK SC"))
-    application.setFont(QFont("Noto Sans CJK SC", 10));
+  loadFonts();
   MobileFlowTest test;
   return QTest::qExec(&test, argc, argv);
 }

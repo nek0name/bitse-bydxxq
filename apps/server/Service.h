@@ -34,7 +34,8 @@ private:
   QJsonArray stations(const QJsonObject &params = {});
   QJsonArray chargers(const QJsonObject &params = {});
   QJsonObject order(qint64 id);
-  QJsonArray orders(const QJsonObject &params, const Principal &actor);
+  QJsonArray orders(const QJsonObject &params);
+  QJsonObject orderPage(const QJsonObject &params, qint64 userId);
   QJsonValue accountAction(const QString &action, const QJsonObject &p,
                            const Principal &actor);
   QJsonValue stationAction(const QString &action, const QJsonObject &p,
@@ -47,6 +48,8 @@ private:
   void finishOrder(qint64 id, const QString &reason);
   void geocode(quint64 requestId, const QJsonObject &params);
   void runForecast();
+  void stopForecast();
+  void importForecast(const QDateTime &origin);
   QJsonObject forecasts() const;
   void audit(const Principal &actor, const QString &action,
              const QString &target, const QString &detail);

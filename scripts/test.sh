@@ -1,24 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
-root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source-path=SCRIPTDIR
-# shellcheck source=qt-env.sh
-source "$root_dir/scripts/qt-env.sh"
+# shellcheck source=env.sh
+source "$(dirname "${BASH_SOURCE[0]}")/env.sh"
 cd "$root_dir"
-build_dir="${CHARGING_BUILD_DIR:-$root_dir/build/full}"
-[[ "$build_dir" == /* ]] || build_dir="$root_dir/$build_dir"
 if [[ ! -f "$build_dir/CMakeCache.txt" ]]; then
   echo 'No configured build. Run scripts/build.sh before scripts/test.sh.' >&2
   exit 1
 fi
 "$root_dir/scripts/format-cpp.sh" --check
-uv run --frozen --project "$root_dir/ml" ruff check "$root_dir/ml" "$root_dir/tests" "$root_dir/web/tests"
-uv run --frozen --project "$root_dir/ml" ruff format --check "$root_dir/ml" "$root_dir/tests" "$root_dir/web/tests"
+uv run --frozen --project "$root_dir/ml" ruff check "$root_dir/ml" "$root_dir/tests" "$root_dir/web/tests" "$root_dir/web/scripts/export_dashboard.py"
+uv run --frozen --project "$root_dir/ml" ruff format --check "$root_dir/ml" "$root_dir/tests" "$root_dir/web/tests" "$root_dir/web/scripts/export_dashboard.py"
 pnpm --dir "$root_dir/web" lint
 pnpm --dir "$root_dir/web" format:check
-if command -v shellcheck >/dev/null; then
-  shellcheck -x scripts/setup_env.sh scripts/build.sh scripts/qt-env.sh scripts/test.sh
-fi
+shellcheck -x scripts/*.sh ml/download_datasets.sh
 # Require all suites even if CMake skipped an optional dependency.
 ctest --test-dir "$build_dir" --show-only=json-v1 | python3 -c '
 import json, sys

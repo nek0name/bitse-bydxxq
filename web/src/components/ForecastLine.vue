@@ -18,8 +18,11 @@ const chartElement = useChart(() => {
     tooltip: {
       trigger: 'axis',
       formatter: (params) => {
-        const item = props.data[firstTooltipItem(params)?.dataIndex ?? 0]
-        return `${item?.time ?? ''}<br/><b>${Number(item?.predictedLoadKw ?? 0).toFixed(1)} kW</b>${item?.isPeak ? '<br/><span style="color:#ff6b6b">高峰预警</span>' : ''}`
+        const point = firstTooltipItem(params)
+        const item = point && props.data[point.dataIndex]
+        return item
+          ? `${item.time}<br/><b>${item.predictedLoadKw.toFixed(1)} kW</b>${item.isPeak ? '<br/><span style="color:#FF617A">高峰预警</span>' : ''}`
+          : ''
       },
     },
     xAxis: {
@@ -27,7 +30,7 @@ const chartElement = useChart(() => {
       boundaryGap: false,
       data: labels,
       axisLabel: {
-        color: '#71839b',
+        color: '#AAA8B8',
         fontSize: 10,
         interval: Math.max(0, Math.floor(labels.length / 6) - 1),
       },
@@ -36,7 +39,7 @@ const chartElement = useChart(() => {
     },
     yAxis: {
       type: 'value',
-      axisLabel: { color: '#71839b', fontSize: 10, formatter: (value: number) => `${value}kW` },
+      axisLabel: { color: '#AAA8B8', fontSize: 10, formatter: (value: number) => `${value}kW` },
       splitLine: { lineStyle: { color: 'rgba(122,153,190,.12)', type: 'dashed' } },
     },
     series: [
@@ -45,14 +48,14 @@ const chartElement = useChart(() => {
         smooth: true,
         data: props.data.map((item) => ({
           value: item.predictedLoadKw,
-          itemStyle: { color: item.isPeak ? '#ff6b6b' : '#a985ff' },
+          itemStyle: { color: item.isPeak ? '#FF617A' : '#857AD6' },
           symbol: item.isPeak ? 'diamond' : 'circle',
         })),
-        lineStyle: { width: 2.5, color: '#a985ff' },
+        lineStyle: { width: 2.5, color: '#857AD6' },
         areaStyle: {
           color: new graphic.LinearGradient(0, 0, 0, 1, [
-            { offset: 0, color: 'rgba(169,133,255,.28)' },
-            { offset: 1, color: 'rgba(169,133,255,0)' },
+            { offset: 0, color: 'rgba(133,122,214,.28)' },
+            { offset: 1, color: 'rgba(133,122,214,0)' },
           ]),
         },
       },

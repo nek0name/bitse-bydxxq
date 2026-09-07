@@ -36,11 +36,7 @@ def floor_hour(value: datetime) -> datetime:
 
 
 def split_energy(start: datetime, end: datetime, energy: float):
-  """Uniformly allocate a session by its exact overlap with each clock hour.
-
-  Invalid records are rejected, never silently clamped into valid observations.
-  Uniform charging inside a session is an explicit approximation, not metering.
-  """
+  """Allocate session energy to hours in proportion to overlap duration."""
   seconds = (end - start).total_seconds()
   if seconds <= 0 or not math.isfinite(energy) or energy < 0:
     raise ValueError('Session duration must be positive and energy finite/nonnegative')

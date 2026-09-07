@@ -14,7 +14,6 @@
 #include <QGroupBox>
 #include <QLabel>
 #include <QLineEdit>
-#include <QMessageBox>
 #include <QPointer>
 #include <QPushButton>
 #include <QSignalBlocker>
@@ -35,28 +34,25 @@ AdminMainWindow::Impl::Impl(AdminMainWindow *window)
   w->setMinimumSize(980, 660);
   central = new QStackedWidget;
   w->setCentralWidget(central);
-  connection = new QLabel("尚未登录");
-  w->statusBar()->addPermanentWidget(connection);
   buildLogin();
   buildWorkspace();
   central->setCurrentIndex(0);
   poll = new QTimer(w);
   poll->setInterval(15000);
   QObject::connect(poll, &QTimer::timeout, w, [this] {
-    if (autoRefresh->isChecked()) refreshCurrent(false);
+    if (autoRefresh->isChecked()) refreshCurrent();
   });
   forecastPoll = new QTimer(w);
   forecastPoll->setInterval(3000);
   QObject::connect(forecastPoll, &QTimer::timeout, w, [this] {
-    refreshForecastStatus(false);
+    refreshForecastStatus();
   });
 }
 
 void AdminMainWindow::Impl::call(QObject *owner, const QString &action,
                                  const QJsonObject &params,
                                  const std::function<void(QJsonValue)> &success,
-                                 bool interactive,
-                                 const std::function<void()> &failure) {
+                                 const std::function<void(QString)> &failure) {
   // Ignore responses after a dialog closes or the administrator logs out.
   QPointer<AdminMainWindow> window(w);
   QPointer<QObject> receiver(owner);
@@ -65,38 +61,42 @@ void AdminMainWindow::Impl::call(QObject *owner, const QString &action,
     action, params,
     [this, window, receiver, epoch, success](QJsonValue data) {
       if (!window || !receiver || session != epoch) return;
-      connection->setText("服务已连接");
       updatedAt->setText("上次同步："
                          + QTime::currentTime().toString("HH:mm:ss"));
       success(data);
     },
-    [this, window, receiver, epoch, interactive, failure](QString message) {
+    [this, window, receiver, epoch, failure](QString message) {
       if (!window || !receiver || session != epoch) return;
-      connection->setText("请求失败 · 可手动刷新");
-      w->statusBar()->showMessage(message, 12000);
-      if (failure) failure();
-      if (interactive) QMessageBox::warning(w, "操作未完成", message);
+      if (failure)
+        failure(message);
+      else
+        w->statusBar()->showMessage(message, 12000);
     });
 }
 
-void AdminMainWindow::Impl::read(const QString &action,
-                                 const QJsonObject &params,
-                                 const std::function<void(QJsonValue)> &success,
-                                 bool interactive) {
+void AdminMainWindow::Impl::read(
+  const QString &action, const QJsonObject &params,
+  const std::function<void(QJsonValue)> &success) {
   const int revision = ++revisions[action];
   call(
     w, action, params,
     [this, action, revision, success](QJsonValue data) {
       if (revisions.value(action) == revision) success(data);
     },
-    interactive);
+    [this, action, revision](const QString &message) {
+      if (revisions.value(action) == revision)
+        w->statusBar()->showMessage(message, 12000);
+    });
 }
 
 void AdminMainWindow::Impl::buildLogin() {
   auto *page = new QWidget;
+  page->setObjectName("loginPage");
   auto *outer = new QVBoxLayout(page);
   outer->addStretch();
   auto *box = new QGroupBox("管理员登录");
+  box->setObjectName("loginCard");
+  box->setMinimumWidth(420);
   box->setMaximumWidth(500);
   auto *layout = new QVBoxLayout(box);
   layout->addWidget(heading("东软电动汽车充电运营平台"));
@@ -113,9 +113,10 @@ void AdminMainWindow::Impl::buildLogin() {
   form->addRow("账号", username);
   form->addRow("密码", password);
   layout->addLayout(form);
-  loginError = new QLabel("默认账号：admin / 123456");
+  loginError = new QLabel;
   loginError->setObjectName("adminLoginError");
   loginError->setWordWrap(true);
+  loginError->hide();
   layout->addWidget(loginError);
   loginButton = new QPushButton("登录");
   loginButton->setObjectName("adminLoginButton");
@@ -129,15 +130,19 @@ void AdminMainWindow::Impl::buildLogin() {
     if (!url.isValid() || url.host().isEmpty()
         || (url.scheme() != "http" && url.scheme() != "https")) {
       loginError->setText("请输入有效的 http:// 或 https:// 服务地址");
+      loginError->show();
       return;
     }
     if (username->text().trimmed().isEmpty() || password->text().isEmpty()) {
       loginError->setText("请输入账号和密码");
+      loginError->show();
       return;
     }
     if (!loginButton->isEnabled()) return;
     loginButton->setEnabled(false);
-    loginError->setText("正在验证账号…");
+    loginButton->setText("登录中…");
+    loginError->clear();
+    loginError->hide();
     api->setBaseUrl(serverUrl->text().trimmed());
     call(
       w, "admin.login",
@@ -146,21 +151,22 @@ void AdminMainWindow::Impl::buildLogin() {
       [this](QJsonValue data) {
         api->setToken(data.toObject().value("token").toString());
         loggedIn = true;
-        identity->setText(
-          "管理员："
-          + data.toObject().value("username").toString(username->text()));
+        identity->setText("管理员："
+                          + data.toObject().value("username").toString());
         loginButton->setEnabled(true);
+        loginButton->setText("登录");
         password->clear();
         central->setCurrentIndex(1);
         pages->setCurrentIndex(0);
-        refreshStations(false);
-        refreshCurrent(true);
+        refreshStations();
+        refreshCurrent();
         poll->start();
       },
-      false,
-      [this] {
+      [this](const QString &message) {
         loginButton->setEnabled(true);
-        loginError->setText(w->statusBar()->currentMessage());
+        loginButton->setText("登录");
+        loginError->setText(message);
+        loginError->show();
       });
   };
   QObject::connect(loginButton, &QPushButton::clicked, w, login);
@@ -170,9 +176,21 @@ void AdminMainWindow::Impl::buildLogin() {
 void AdminMainWindow::Impl::buildWorkspace() {
   auto *workspace = new QWidget;
   auto *root = new QHBoxLayout(workspace);
-  auto *navigation = new QVBoxLayout;
-  navigation->addWidget(heading("充电运营"));
+  root->setContentsMargins(0, 0, 0, 0);
+  root->setSpacing(0);
+  auto *sidebar = new QWidget;
+  sidebar->setObjectName("sidebar");
+  sidebar->setFixedWidth(184);
+  auto *navigation = new QVBoxLayout(sidebar);
+  navigation->setContentsMargins(12, 18, 12, 18);
+  navigation->setSpacing(4);
+  auto *brand = heading("充电运营");
+  brand->setObjectName("brandHeading");
+  brand->setIndent(0);
+  navigation->addWidget(brand);
   identity = new QLabel;
+  identity->setObjectName("adminIdentity");
+  identity->setIndent(0);
   navigation->addWidget(identity);
   auto *group = new QButtonGroup(w);
   const QStringList labels{"运营概览", "充电站管理", "充电桩管理", "用户管理",
@@ -181,7 +199,7 @@ void AdminMainWindow::Impl::buildWorkspace() {
     auto *nav = new QPushButton(labels[i]);
     nav->setObjectName("navigation" + QString::number(i));
     nav->setCheckable(true);
-    nav->setMinimumHeight(36);
+    nav->setMinimumHeight(32);
     group->addButton(nav, i);
     navigation->addWidget(nav);
   }
@@ -192,25 +210,34 @@ void AdminMainWindow::Impl::buildWorkspace() {
   QObject::connect(screen, &QPushButton::clicked, w, [this] {
     QDesktopServices::openUrl(QUrl(api->baseUrl()).resolved(QUrl("/")));
   });
+  auto *settings = new QPushButton("设置");
+  settings->setObjectName("adminSettingsButton");
+  navigation->addWidget(settings);
+  QObject::connect(settings, &QPushButton::clicked, w, [this] {
+    showSettings(w);
+  });
   auto *logout = new QPushButton("退出登录");
   logout->setObjectName("adminLogoutButton");
   navigation->addWidget(logout);
   QObject::connect(logout, &QPushButton::clicked, w, [this] {
     logoutNow();
   });
-  root->addLayout(navigation);
+  root->addWidget(sidebar);
   auto *body = new QVBoxLayout;
+  body->setContentsMargins(18, 16, 18, 12);
+  body->setSpacing(12);
   auto *toolbar = new QHBoxLayout;
   updatedAt = new QLabel("尚未同步");
+  updatedAt->setObjectName("syncTime");
   toolbar->addWidget(updatedAt);
   toolbar->addStretch();
-  autoRefresh = new QCheckBox("每 15 秒自动刷新当前页");
+  autoRefresh = new QCheckBox("自动刷新");
   autoRefresh->setChecked(true);
   toolbar->addWidget(autoRefresh);
-  auto *refresh = button("刷新当前页", toolbar);
+  auto *refresh = button("刷新", toolbar);
   refresh->setObjectName("refreshCurrentPage");
   QObject::connect(refresh, &QPushButton::clicked, w, [this] {
-    refreshCurrent(true);
+    refreshCurrent();
   });
   body->addLayout(toolbar);
   pages = new QStackedWidget;
@@ -226,7 +253,7 @@ void AdminMainWindow::Impl::buildWorkspace() {
   central->addWidget(workspace);
   QObject::connect(group, &QButtonGroup::idClicked, w, [this](int index) {
     pages->setCurrentIndex(index);
-    refreshCurrent(true);
+    refreshCurrent();
   });
   QObject::connect(pages, &QStackedWidget::currentChanged, group,
                    [group](int index) {
@@ -234,12 +261,21 @@ void AdminMainWindow::Impl::buildWorkspace() {
                    });
 }
 
-void AdminMainWindow::Impl::page(const QString &title, QVBoxLayout **layout) {
+QVBoxLayout *AdminMainWindow::Impl::page(const QString &title,
+                                         QHBoxLayout *header) {
   auto *result = new QWidget;
-  *layout = new QVBoxLayout(result);
-  (*layout)->setContentsMargins(8, 8, 8, 8);
-  (*layout)->addWidget(heading(title));
+  auto *layout = new QVBoxLayout(result);
+  layout->setContentsMargins(8, 8, 8, 8);
+  auto *label = heading(title);
+  label->setObjectName("pageHeading");
+  if (header) {
+    header->addWidget(label);
+    header->addSpacing(16);
+  } else {
+    layout->addWidget(label);
+  }
   pages->addWidget(result);
+  return layout;
 }
 
 QLabel *AdminMainWindow::Impl::metric(const QString &title, QHBoxLayout *row) {
@@ -251,30 +287,30 @@ QLabel *AdminMainWindow::Impl::metric(const QString &title, QHBoxLayout *row) {
   return label;
 }
 
-void AdminMainWindow::Impl::refreshCurrent(bool interactive) {
+void AdminMainWindow::Impl::refreshCurrent() {
   if (!loggedIn) return;
   switch (pages->currentIndex()) {
   case 0:
-    refreshOverview(interactive);
+    refreshOverview();
     break;
   case 1:
-    refreshStations(interactive);
+    refreshStations();
     break;
   case 2:
-    refreshChargers(interactive);
+    refreshChargers();
     break;
   case 3:
-    refreshUsers(interactive);
+    refreshUsers();
     break;
   case 4:
-    refreshOrders(interactive);
+    refreshOrders();
     break;
   case 5:
-    refreshForecasts(interactive);
-    refreshForecastStatus(false);
+    refreshForecasts();
+    refreshForecastStatus();
     break;
   case 6:
-    refreshLogs(interactive);
+    refreshLogs();
     break;
   }
 }
@@ -295,24 +331,25 @@ void AdminMainWindow::Impl::logoutNow() {
     dialog->close();
   for (auto *widget :
        {statusTable, trendTable, stationTable, chargerTable, userTable,
-        ordersTable, stationForecasts, chargerForecasts, logsTable})
+        ordersTable, stationForecasts, chargerForecasts, logsTable}) {
     widget->setRowCount(0);
+    widget->clearFilters();
+  }
   for (auto *label : {todayRevenue, monthRevenue, totalRevenue, todayOrders})
     label->setText("—");
-  allStations = {};
-  for (auto *combo : {chargerStation, forecastStation}) {
-    const QSignalBlocker blocker(combo);
-    combo->clear();
-    combo->addItem("全部电站", 0);
+  {
+    const QSignalBlocker blocker(forecastStation);
+    forecastStation->clear();
+    forecastStation->addItem("全部电站", 0);
   }
-  for (auto *edit : {stationSearch, chargerSearch, userSearch}) edit->clear();
   password->clear();
   auto *oldChart = revenueChart->chart();
   revenueChart->setChart(new QChart);
+  styleChart(revenueChart->chart());
   delete oldChart;
   updatedAt->setText("尚未同步");
-  connection->setText("已退出登录");
-  loginError->setText("已退出登录");
+  loginError->clear();
+  w->statusBar()->clearMessage();
   central->setCurrentIndex(0);
   password->setFocus();
 }

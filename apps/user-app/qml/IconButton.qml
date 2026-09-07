@@ -1,5 +1,5 @@
-import QtQuick 2.15
-import QtQuick.Controls 2.15
+import QtQuick
+import QtQuick.Controls
 
 Button {
   id: control
@@ -17,8 +17,6 @@ Button {
   }
   background: Rectangle {
     radius: Theme.heroRadius
-    color: !control.enabled ? 'transparent' : control.down ? '#d4e4d5' : control.hovered ? Theme.primaryLight : 'transparent'
-    border.width: control.visualFocus ? 2 : 0
-    border.color: Theme.primary
+    color: !control.enabled ? 'transparent' : control.down ? Theme.primarySoftPressed : (control.hovered || control.visualFocus) ? Theme.primaryLight : 'transparent'
   }
 }

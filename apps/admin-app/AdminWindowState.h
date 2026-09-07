@@ -3,7 +3,6 @@
 #include "AdminMainWindow.h"
 
 #include <QHash>
-#include <QJsonArray>
 #include <QJsonObject>
 #include <functional>
 
@@ -16,7 +15,9 @@ class QLabel;
 class QLineEdit;
 class QPushButton;
 class QStackedWidget;
-class QTableWidget;
+namespace adminui {
+class DataTable;
+}
 class QTimer;
 class QVBoxLayout;
 
@@ -25,35 +26,34 @@ public:
   explicit Impl(AdminMainWindow *window);
   void call(QObject *owner, const QString &action, const QJsonObject &params,
             const std::function<void(QJsonValue)> &success,
-            bool interactive = true, const std::function<void()> &failure = {});
+            const std::function<void(QString)> &failure = {});
   void read(const QString &action, const QJsonObject &params,
-            const std::function<void(QJsonValue)> &success, bool interactive);
+            const std::function<void(QJsonValue)> &success);
   void buildLogin();
   void buildWorkspace();
-  void page(const QString &title, QVBoxLayout **layout);
+  QVBoxLayout *page(const QString &title, QHBoxLayout *header = nullptr);
   QLabel *metric(const QString &title, QHBoxLayout *row);
   void buildOverview();
-  void refreshOverview(bool interactive);
+  void refreshOverview();
   void buildStations();
-  void refreshStations(bool interactive);
-  void showStations();
+  void refreshStations();
   void stationEditor(const QJsonObject &existing);
-  void chargerActions(QTableWidget *target, QHBoxLayout *toolbar,
+  void chargerActions(adminui::DataTable *target, QHBoxLayout *toolbar,
                       QObject *owner, const std::function<void()> &refresh);
   void stationDetail(const QJsonObject &station);
   void buildChargers();
-  void refreshChargers(bool interactive);
+  void refreshChargers();
   void buildUsers();
-  void refreshUsers(bool interactive);
+  void refreshUsers();
   void userOrders(const QJsonObject &user);
   void buildOrders();
-  void refreshOrders(bool interactive);
+  void refreshOrders();
   void buildForecasts();
-  void refreshForecasts(bool interactive);
-  void refreshForecastStatus(bool interactive);
+  void refreshForecasts();
+  void refreshForecastStatus();
   void buildLogs();
-  void refreshLogs(bool interactive);
-  void refreshCurrent(bool interactive);
+  void refreshLogs();
+  void refreshCurrent();
   void logoutNow();
 
   AdminMainWindow *w;
@@ -66,7 +66,6 @@ public:
   QPushButton *loginButton = nullptr;
   QLabel *loginError = nullptr;
   QLabel *identity = nullptr;
-  QLabel *connection = nullptr;
   QLabel *updatedAt = nullptr;
   QCheckBox *autoRefresh = nullptr;
   QTimer *poll = nullptr;
@@ -79,27 +78,16 @@ public:
   QLabel *totalRevenue = nullptr;
   QLabel *todayOrders = nullptr;
   QChartView *revenueChart = nullptr;
-  QTableWidget *statusTable = nullptr;
-  QTableWidget *trendTable = nullptr;
-  QTableWidget *stationTable = nullptr;
-  QLabel *stationCount = nullptr;
-  QLineEdit *stationSearch = nullptr;
-  QJsonArray allStations;
-  QTableWidget *chargerTable = nullptr;
-  QLabel *chargerCount = nullptr;
-  QComboBox *chargerStation = nullptr;
-  QComboBox *chargerStatus = nullptr;
-  QLineEdit *chargerSearch = nullptr;
-  QTableWidget *userTable = nullptr;
-  QLabel *userCount = nullptr;
-  QLineEdit *userSearch = nullptr;
-  QTableWidget *ordersTable = nullptr;
-  QLabel *ordersCount = nullptr;
-  QTableWidget *logsTable = nullptr;
-  QLabel *logsCount = nullptr;
+  adminui::DataTable *statusTable = nullptr;
+  adminui::DataTable *trendTable = nullptr;
+  adminui::DataTable *stationTable = nullptr;
+  adminui::DataTable *chargerTable = nullptr;
+  adminui::DataTable *userTable = nullptr;
+  adminui::DataTable *ordersTable = nullptr;
+  adminui::DataTable *logsTable = nullptr;
   QComboBox *forecastStation = nullptr;
-  QTableWidget *stationForecasts = nullptr;
-  QTableWidget *chargerForecasts = nullptr;
+  adminui::DataTable *stationForecasts = nullptr;
+  adminui::DataTable *chargerForecasts = nullptr;
   QLabel *forecastMeta = nullptr;
   QLabel *forecastState = nullptr;
   QLabel *forecastWarnings = nullptr;

@@ -1,10 +1,11 @@
-import QtQuick 2.15
+import QtQuick
 
 Image {
   property string name: ''
+  property color color: Theme.ink
   width: Theme.iconSize
   height: Theme.iconSize
-  source: name ? 'qrc:/icons/' + name + '.svg' : ''
+  source: name ? appearance.iconSource(':/icons/' + name + '.svg', color) : ''
   sourceSize.width: width * 2
   sourceSize.height: height * 2
   fillMode: Image.PreserveAspectFit

@@ -2,23 +2,18 @@
   "version": 3,
   "configurePresets": [
     {
-      "name": "debug",
-      "displayName": "Debug",
-      "binaryDir": "${sourceDir}/build/debug",
+      "name": "full",
+      "displayName": "Charging Platform",
+      "binaryDir": "${sourceDir}/build/full",
       "generator": "Unix Makefiles",
       "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Debug",
-        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
-      }
-    },
-    {
-      "name": "release",
-      "displayName": "Release",
-      "binaryDir": "${sourceDir}/build/release",
-      "generator": "Unix Makefiles",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Release",
-        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "BUILD_TESTING": "ON",
+        "BUILD_USER_APP": "ON",
+        "BUILD_ADMIN_APP": "ON",
+        "BUILD_SERVER": "ON",
+        "BUILD_MOBILE_FLOW_TESTS": "ON"
       }
     }
   ]

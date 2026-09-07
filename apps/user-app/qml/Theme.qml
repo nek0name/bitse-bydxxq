@@ -1,21 +1,33 @@
 pragma Singleton
-import QtQuick 2.15
+import QtQuick
 
 QtObject {
-  readonly property color paper: '#f6f7f3'
-  readonly property color card: '#ffffff'
-  readonly property color ink: '#192e24'
-  readonly property color muted: '#65746a'
-  readonly property color primary: '#245b43'
-  readonly property color primaryPressed: '#174a33'
-  readonly property color primaryLight: '#e5efe7'
-  readonly property color accent: '#d9ee89'
-  readonly property color border: '#e0e7de'
-  readonly property color amber: '#8b601f'
-  readonly property color danger: '#a84239'
-  readonly property color dangerLight: '#fff0ec'
-  readonly property color disabled: '#e2e7df'
-  readonly property color disabledText: '#879286'
+  readonly property color paper: appearance.colors.paper
+  readonly property color card: appearance.colors.card
+  readonly property color ink: appearance.colors.ink
+  readonly property color muted: appearance.colors.muted
+  readonly property color primaryText: appearance.colors.primaryText
+  readonly property color primaryForeground: appearance.colors.onPrimary
+  readonly property color secondary: appearance.colors.secondary
+  readonly property color secondaryLight: appearance.colors.secondaryLight
+  readonly property color primary: appearance.colors.primary
+  readonly property color primaryPressed: appearance.colors.primaryPressed
+  readonly property color primaryLight: appearance.colors.primaryLight
+  readonly property color primarySoftPressed: appearance.colors.primarySoftPressed
+  readonly property color accent: appearance.colors.accent
+  readonly property color border: appearance.colors.border
+  readonly property color surfaceDark: appearance.colors.surfaceDark
+  readonly property color surfaceDarkRaised: appearance.colors.surfaceDarkRaised
+  readonly property color heroMuted: appearance.colors.heroMuted
+  readonly property color amber: appearance.colors.amber
+  readonly property color amberLight: appearance.colors.amberLight
+  readonly property color amberPressed: appearance.colors.amberPressed
+  readonly property color danger: appearance.colors.danger
+  readonly property color dangerLight: appearance.colors.dangerLight
+  readonly property color disabled: appearance.colors.disabled
+  readonly property color disabledText: appearance.colors.disabledText
+  readonly property color overlay: appearance.colors.overlay
+  readonly property color toast: appearance.colors.toast
 
   readonly property int pagePadding: 16
   readonly property int cardPadding: 16

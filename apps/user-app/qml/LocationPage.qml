@@ -1,5 +1,5 @@
-import QtQuick 2.15
-import QtQuick.Controls 2.15
+import QtQuick
+import QtQuick.Controls
 
 Flickable {
   objectName: 'locationPage'
@@ -37,7 +37,7 @@ Flickable {
           text: mobile.locationName
           font.pixelSize: Theme.bodyLargeSize
           font.weight: Font.Medium
-          color: Theme.primary
+          color: Theme.primaryText
           wrapMode: Text.WordWrap
         }
       }
@@ -100,8 +100,6 @@ Flickable {
         background: Rectangle {
           color: regionPicker.down ? Theme.primaryLight : Theme.card
           radius: Theme.cardRadius
-          border.color: regionPicker.visualFocus ? Theme.primary : Theme.border
-          border.width: regionPicker.visualFocus ? 2 : 1
         }
         delegate: ItemDelegate {
           width: regionPicker.width
@@ -127,7 +125,8 @@ Flickable {
             objectName: 'locationPreset_' + index
             text: modelData.name
             width: (content.width - Theme.space) / 2
-            tone: mobile.locationName === modelData.name ? 'primary' : 'secondary'
+            variant: 'chip'
+            selected: mobile.locationName === modelData.name
             onClicked: {
               mobile.chooseLocation(index)
               mobile.back()

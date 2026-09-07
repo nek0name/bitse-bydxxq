@@ -130,13 +130,13 @@ def run(path: Path, output: Path):
   report = {
     'dataset': 'Jiaxing public EV charging transactions 2020–2021',
     'sourceUrl': 'https://doi.org/10.6084/m9.figshare.28182251',
-    'scope': '公开历史数据离线回测；与课程业务站点独立，不代表当前实时预测精度。',
+    'scope': '嘉兴 2020–2021 年公开充电交易数据离线回测。',
     'modelVersion': 'jiaxing-direct-rf-v2',
     'seed': 42,
-    'method': '按时间前80%训练、后20%每6小时滚动原点测试；每次预测未来24小时，不向递归步骤提供未来真实值。允许原点前已到达的测试历史作为滞后观测。模型直接输出24步。固定超参数，无测试集调参。',
-    'features': '原点小时/星期周期、已知负荷lag0/1/23/24/167、原点及此前24/168小时均值；中国法定节假日及调休、年周期；原点前一自然日已完成的真实温度/降水，缺失显式标记。未使用预测日真实天气。',
-    'aggregation': '会话电量依据每个小时实际重叠秒数均匀分摊；无记录的小时视作零交易；数据采集完整性未知，这是评估限制。',
-    'metrics': 'MAE/RMSE为kW；WAPE以测试真实总负荷作分母，避免零负荷MAPE爆炸。',
+    'method': '按时间前 80% 训练，后 20% 每 6 小时滚动测试；使用预测原点已知的观测，直接预测未来 24 小时，超参数固定。',
+    'features': '原点小时/星期周期、已知负荷lag0/1/23/24/167、原点及此前24/168小时均值；中国法定节假日及调休、年周期；原点前一自然日已完成的真实温度/降水，缺失显式标记。',
+    'aggregation': '会话电量按小时重叠秒数分摊，无记录小时计零；数据采集完整性未知。',
+    'metrics': 'MAE/RMSE 单位为 kW；WAPE 以测试真实总负荷作分母。',
     'trainStart': iso(start),
     'trainEndExclusive': iso(times[train_end]),
     'testEnd': iso(end + HOUR),
@@ -164,7 +164,7 @@ def run(path: Path, output: Path):
     for h in horizons
   )
   (output / 'report.md').write_text(
-    f'# 嘉兴公开数据回测\n\n{report["scope"]}\n\n来源：[{report["dataset"]}]({report["sourceUrl"]})\n\n{report["method"]}\n\n训练：{report["trainStart"]} 至 {report["trainEndExclusive"]}（不含）；测试至 {report["testEnd"]}。\n\n输入 {metadata["rawSessions"]} 条，保留 {metadata["acceptedSessions"]} 条；分摊前后电量分别 {metadata["inputEnergyKwh"]} / {metadata["allocatedEnergyKwh"]} kWh。\n\n| 时距 | RF MAE (kW) | RF RMSE (kW) | 周期基线 MAE (kW) |\n|---|---:|---:|---:|\n{rows}\n\n限制：{report["aggregation"]} 回测历史需求与当前课程演示数据存在明显差异，不能把本报告指标当作业务站点的精度承诺。\n',
+    f'# 嘉兴公开数据回测\n\n{report["scope"]}\n\n来源：[{report["dataset"]}]({report["sourceUrl"]})\n\n{report["method"]}\n\n训练：{report["trainStart"]} 至 {report["trainEndExclusive"]}（不含）；测试至 {report["testEnd"]}。\n\n输入 {metadata["rawSessions"]} 条，保留 {metadata["acceptedSessions"]} 条；分摊前后电量分别 {metadata["inputEnergyKwh"]} / {metadata["allocatedEnergyKwh"]} kWh。\n\n| 时距 | RF MAE (kW) | RF RMSE (kW) | 周期基线 MAE (kW) |\n|---|---:|---:|---:|\n{rows}\n\n数据口径：{report["aggregation"]}\n',
     encoding='utf-8',
   )
   print(json.dumps(report['horizons'], ensure_ascii=False, indent=2))

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import fontLicense from '../../shared/fonts/LICENSE.txt?url'
 import ChartCard from './components/ChartCard.vue'
 import ChargerTypeDonut from './components/ChargerTypeDonut.vue'
 import ForecastLine from './components/ForecastLine.vue'
@@ -13,7 +14,15 @@ import StatusDonut from './components/StatusDonut.vue'
 import { useDashboardData } from './composables/useDashboardData'
 const { data, loading, error, lastSuccessAt, stale, refresh } = useDashboardData()
 const clock = ref(new Date())
-const selectedStationId = ref<number>()
+const requestedStationId = ref<number>()
+const selectedStationId = computed({
+  get: () =>
+    data.value.stations.find((station) => station.id === requestedStationId.value)?.id ??
+    data.value.stations[0]?.id,
+  set: (id: number | undefined) => {
+    requestedStationId.value = id
+  },
+})
 const operationalEvents = computed(() =>
   data.value.recentEvents
     .filter((event) => !['负荷预测更新', '演示环境初始化'].includes(event.action))
@@ -22,15 +31,11 @@ const operationalEvents = computed(() =>
 const viewport = ref({ width: window.innerWidth, height: window.innerHeight })
 const scale = computed(() => Math.min(viewport.value.width / 1920, viewport.value.height / 1080))
 const fit = computed(() => ({ transform: `translate(-50%, -50%) scale(${scale.value})` }))
-const connection = computed(() =>
-  error.value
-    ? '连接中断 · 保留最近快照'
-    : !lastSuccessAt.value
-      ? '正在连接服务'
-      : stale.value
-        ? '数据已过期'
-        : '业务服务已连接',
-)
+const connection = computed(() => {
+  if (error.value) return error.value
+  if (!lastSuccessAt.value) return '连接中'
+  return stale.value ? '数据已过期' : ''
+})
 const forecastStale = computed(
   () =>
     !Number.isFinite(Date.parse(data.value.forecastMeta.generatedAt)) ||
@@ -67,7 +72,11 @@ async function fullscreen() {
       <header class="topbar">
         <div class="header-side">
           <span class="brand-kicker">NEUSOFT / SMART ENERGY</span
-          ><span class="connection" :class="{ warning: error || stale }"
+          ><span
+            v-if="connection"
+            class="connection"
+            :class="{ warning: error || stale }"
+            role="status"
             ><i />{{ connection }}</span
           >
         </div>
@@ -85,7 +94,6 @@ async function fullscreen() {
           </div>
         </div>
       </header>
-      <div v-if="error" class="dashboard-error warning" role="alert">{{ error }}</div>
       <div class="overview-row">
         <KpiCards :data="data.kpis" />
         <StationCapacity v-model="selectedStationId" :stations="data.stations" />
@@ -150,6 +158,7 @@ async function fullscreen() {
         >
         <span>数据更新 {{ date(data.dataCutoff) }}</span>
         <span>预测更新 {{ date(data.forecastMeta.generatedAt) }}</span>
+        <a :href="fontLicense" class="font-license">HarmonyOS Sans SC</a>
       </footer>
     </div>
   </div>

@@ -23,6 +23,7 @@ private:
   void showNavigation(const QVariantMap &destination, const QString &originName,
                       double latitude, double longitude);
   void createMapPage();
+  void applyAppearance();
   void loadRoute();
 
   MobileController *m_controller;

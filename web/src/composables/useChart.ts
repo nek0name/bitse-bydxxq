@@ -8,7 +8,7 @@ export function useChart(createOption: () => ChartOption, onInit?: (chart: Chart
 
   onMounted(() => {
     if (!element.value) return
-    chart = init(element.value)
+    chart = init(element.value, 'charging')
     onInit?.(chart)
     chart.setOption(createOption(), { notMerge: true })
     observer = new ResizeObserver(() => chart?.resize())

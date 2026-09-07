@@ -1,6 +1,6 @@
-import QtQuick 2.15
-import QtQuick.Controls 2.15
-import QtQuick.Layouts 1.15
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
 
 Flickable {
   objectName: 'loginPage'
@@ -34,7 +34,7 @@ Flickable {
       width: parent.width
       height: 288
       radius: Theme.heroRadius
-      color: Theme.primary
+      color: Theme.surfaceDark
       Column {
         x: Theme.cardPadding
         y: Theme.cardPadding

@@ -35,7 +35,9 @@ QJsonArray Service::stations(const QJsonObject &p) {
     "SELECT "
     "s.id,s.code,s.name,s.address,s.region,s.latitude,s.longitude,s.price_"
     "cents AS priceCents,COUNT(c.id) AS totalChargers,SUM(CASE WHEN "
-    "c.status='idle' THEN 1 ELSE 0 END) AS idleChargers,100.0*SUM(CASE WHEN "
+    "c.status='idle' THEN 1 ELSE 0 END) AS idleChargers,SUM(CASE WHEN "
+    "c.status IN ('fault','restarting') THEN 1 ELSE 0 END) AS faultChargers,"
+    "100.0*SUM(CASE WHEN "
     "c.status IN ('idle','reserved','charging') THEN 1 ELSE 0 "
     "END)/MAX(COUNT(c.id),1) AS onlineRate FROM stations s LEFT JOIN chargers "
     "c ON c.station_id=s.id GROUP BY s.id ORDER BY s.id");

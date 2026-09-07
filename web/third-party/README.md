@@ -6,7 +6,6 @@
 修改：移除 lodash/VueUse/SCSS 依赖，使用原生 ResizeObserver，修正 stroke 绑定，
 调整颜色和透明度，加入无障碍标记。项目的三栏指挥中心布局与标题装饰也参考该项目。
 
-本仓库 PR #8 提供的数字动画思路已重新实现，加入取消动画和减少动态效果支持。
-ECharts 与 Vue 通过 package.json/pnpm-lock.yaml 锁定，图表、图标和边框本地渲染，
-没有第三方 CDN、在线字体、地图瓦片或来源不明的图片。中央空间分布图直接使用后端
-站点经纬度绘制散点，供查看站点分布和选择站点。
+Vue 和 ECharts 版本由 `package.json` 与 `pnpm-lock.yaml` 管理。中央空间图按业务站点经纬度绘制散点。
+
+界面使用华为 HarmonyOS Sans SC。原始字体和授权位于 `shared/fonts/`，大屏与 Qt 客户端共用。

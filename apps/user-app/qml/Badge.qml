@@ -1,8 +1,8 @@
-import QtQuick 2.15
+import QtQuick
 
 Rectangle {
   property alias text: label.text
-  property color textColor: Theme.primary
+  property color textColor: Theme.primaryText
   property color fill: Theme.primaryLight
   property real maximumWidth: Number.POSITIVE_INFINITY
   implicitHeight: 28

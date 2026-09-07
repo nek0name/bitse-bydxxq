@@ -87,14 +87,14 @@ def forecast(payload: dict) -> dict:
         if charger.get('status') == 'charging':
           predicted[0] = power * 0.5
         baseline_count += 1
-      unavailable = charger.get('status') in ('fault', 'offline', 'restarting', 'maintenance')
+      unavailable = charger['status'] in ('fault', 'offline', 'restarting')
       if unavailable:
         predicted[:] = 0
       predicted = np.clip(predicted, 0, power)
       charger_results.append(
         {
           'chargerId': cid,
-          'code': charger.get('code', str(cid)),
+          'code': charger['code'],
           'method': model_kind,
           'peakThresholdKw': round(peak_threshold, 3),
           'hours': [
@@ -108,11 +108,7 @@ def forecast(payload: dict) -> dict:
           ],
         }
       )
-    usable = [
-      c
-      for c in chargers
-      if c.get('status') not in ('fault', 'offline', 'restarting', 'maintenance')
-    ]
+    usable = [c for c in chargers if c['status'] not in ('fault', 'offline', 'restarting')]
     capacity = sum(max(0.0, float(c.get('powerKw', 0))) for c in usable)
     hours = []
     for index, time in enumerate(future):

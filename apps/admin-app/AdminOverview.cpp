@@ -4,6 +4,7 @@
 #include <QChart>
 #include <QChartView>
 #include <QComboBox>
+#include <QCursor>
 #include <QDateTime>
 #include <QDateTimeAxis>
 #include <QGroupBox>
@@ -11,14 +12,14 @@
 #include <QLineSeries>
 #include <QSplitter>
 #include <QTableWidget>
+#include <QToolTip>
 #include <QVBoxLayout>
 #include <QValueAxis>
 
 using namespace adminui;
 
 void AdminMainWindow::Impl::buildOverview() {
-  QVBoxLayout *layout;
-  page("运营概览", &layout);
+  auto *layout = page("运营概览");
   auto *metrics = new QHBoxLayout;
   todayRevenue = metric("今日营收", metrics);
   monthRevenue = metric("本月营收", metrics);
@@ -26,8 +27,7 @@ void AdminMainWindow::Impl::buildOverview() {
   todayOrders = metric("今日成交订单", metrics);
   layout->addLayout(metrics);
   auto *row = new QHBoxLayout;
-  row->addWidget(
-    new QLabel("营收趋势（以已结算订单计，业务时区：中国标准时间）"));
+  row->addWidget(new QLabel("营收趋势"));
   row->addStretch();
   trendDays = new QComboBox;
   trendDays->setObjectName("revenueTrendDays");
@@ -36,10 +36,11 @@ void AdminMainWindow::Impl::buildOverview() {
   row->addWidget(trendDays);
   QObject::connect(trendDays, qOverload<int>(&QComboBox::currentIndexChanged),
                    w, [this] {
-                     if (loggedIn) refreshOverview(true);
+                     if (loggedIn) refreshOverview();
                    });
   layout->addLayout(row);
   revenueChart = new QChartView(new QChart);
+  styleChart(revenueChart->chart());
   revenueChart->setObjectName("revenueChart");
   revenueChart->setRenderHint(QPainter::Antialiasing);
   revenueChart->setMinimumHeight(240);
@@ -47,18 +48,18 @@ void AdminMainWindow::Impl::buildOverview() {
   auto *split = new QSplitter;
   auto *statusBox = new QGroupBox("当前电桩状态分布");
   auto *statusLayout = new QVBoxLayout(statusBox);
-  statusTable = table({"状态", "数量", "占比 (%)"}, "statusTable");
-  statusLayout->addWidget(statusTable);
+  statusTable = new DataTable({"状态", "数量", "占比 (%)"}, "statusTable");
+  statusLayout->addWidget(statusTable->panel());
   split->addWidget(statusBox);
   auto *trendBox = new QGroupBox("每日营收与订单数");
   auto *trendLayout = new QVBoxLayout(trendBox);
-  trendTable = table({"日期", "营收 (元)", "订单数"}, "trendTable");
-  trendLayout->addWidget(trendTable);
+  trendTable = new DataTable({"日期", "营收 (元)", "订单数"}, "trendTable");
+  trendLayout->addWidget(trendTable->panel());
   split->addWidget(trendBox);
   layout->addWidget(split, 1);
 }
 
-void AdminMainWindow::Impl::refreshOverview(bool interactive) {
+void AdminMainWindow::Impl::refreshOverview() {
   read(
     "admin.overview", {{"days", trendDays->currentData().toInt()}},
     [this](QJsonValue data) {
@@ -67,23 +68,44 @@ void AdminMainWindow::Impl::refreshOverview(bool interactive) {
       monthRevenue->setText(money(o["monthRevenueCents"]));
       totalRevenue->setText(money(o["totalRevenueCents"]));
       todayOrders->setText(QString::number(o["todayOrders"].toInt()));
-      fill(statusTable, o["statusCounts"].toArray(),
-           [](const QJsonObject &item) -> QVariantList {
-             return {item["label"].toString(state(item["status"].toString())),
-                     item["count"].toInt(), number(item["percent"])};
-           });
+      statusTable->fill(o["statusCounts"].toArray(),
+                        [](const QJsonObject &item) -> QVariantList {
+                          return {item["label"].toString(),
+                                  item["count"].toInt(),
+                                  numberCell(item["percent"])};
+                        });
       const auto trend = o["revenueTrend"].toArray();
-      fill(trendTable, trend, [](const QJsonObject &item) -> QVariantList {
-        return {item["date"].toString(), money(item["revenueCents"]),
+      trendTable->fill(trend, [](const QJsonObject &item) -> QVariantList {
+        return {item["date"].toString(), moneyCell(item["revenueCents"]),
                 item["orderCount"].toInt()};
       });
+      const auto days = trendDays->currentData().toInt();
+      auto *current = revenueChart->chart();
+      if (current->property("days").toInt() == days
+          && current->property("trend").value<QJsonArray>() == trend)
+        return;
       auto *chart = new QChart;
+      chart->setProperty("days", days);
+      chart->setProperty("trend", QVariant::fromValue(trend));
       chart->setTitle(
         QString("近 %1 日营收趋势").arg(trendDays->currentData().toInt()));
       chart->legend()->hide();
       auto *series = new QLineSeries(chart);
       series->setName("营收 (元)");
       series->setPointsVisible(true);
+      QObject::connect(
+        series, &QLineSeries::hovered, revenueChart,
+        [this](const QPointF &point, bool entered) {
+          if (!entered) {
+            QToolTip::hideText();
+            return;
+          }
+          const auto date = QDateTime::fromMSecsSinceEpoch(qRound64(point.x()))
+                              .toString("MM-dd");
+          QToolTip::showText(
+            QCursor::pos(), date + QString(" · ¥ %1").arg(point.y(), 0, 'f', 2),
+            revenueChart);
+        });
       double maximum = 1;
       qint64 first = 0, last = 0;
       for (const auto &value : trend) {
@@ -117,9 +139,9 @@ void AdminMainWindow::Impl::refreshOverview(bool interactive) {
       chart->addAxis(y, Qt::AlignLeft);
       series->attachAxis(x);
       series->attachAxis(y);
+      styleChart(chart);
       auto *old = revenueChart->chart();
       revenueChart->setChart(chart);
       delete old;
-    },
-    interactive);
+    });
 }

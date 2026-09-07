@@ -6,6 +6,7 @@ import urllib.request
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 
+import pytest
 from conftest import Server
 
 
@@ -15,6 +16,24 @@ def key():
 
 def reserve(server, token, charger=1):
   return server.rpc('orders.reserve', {'chargerId': charger, 'idempotencyKey': key()}, token)
+
+
+@pytest.mark.parametrize('seed', [False, True])
+def test_dashboard_before_first_prediction(tmp_path, seed):
+  server = Server(tmp_path / 'state', seed=seed)
+  try:
+    with urllib.request.urlopen(server.url + '/api/dashboard') as response:
+      dashboard = json.load(response)
+    assert dashboard['forecastMeta'] == {
+      'generatedAt': '',
+      'modelVersion': '',
+      'source': '预测尚未生成',
+    }
+    assert dashboard['forecast24h'] == []
+    assert len(dashboard['stations']) == (5 if seed else 0)
+    assert len(dashboard['hourlyHeatmap']) == 7 * 24
+  finally:
+    server.close()
 
 
 def test_phone_login_and_role_boundaries(server):
@@ -140,6 +159,28 @@ def test_concurrent_reservations_and_order_ownership(server):
   )
   server.rpc('orders.cancel', {'orderId': order['id']}, tokens[winner])
   assert reserve(server, tokens[1 - winner])['status'] == 'reserved'
+
+
+def test_station_counts_separate_available_unavailable_and_faults(server):
+  with sqlite3.connect(server.directory / 'platform.db') as db:
+    chargers = db.execute('SELECT id FROM chargers WHERE station_id=1 ORDER BY id').fetchall()
+    assert len(chargers) == 6
+    for (charger_id,), status in zip(
+      chargers, ['idle', 'reserved', 'charging', 'offline', 'fault', 'restarting'], strict=True
+    ):
+      db.execute(
+        "UPDATE chargers SET status=?,restart_at='2099-01-01T00:00:00.000Z' WHERE id=?",
+        (status, charger_id),
+      )
+  station = next(station for station in server.rpc('stations.list') if station['id'] == 1)
+  assert station['totalChargers'] == 6
+  assert station['idleChargers'] == 1
+  assert station['faultChargers'] == 2
+  assert station['totalChargers'] - station['idleChargers'] - station['faultChargers'] == 3
+  admin_station = next(
+    station for station in server.rpc('admin.stations', token=server.admin()) if station['id'] == 1
+  )
+  assert admin_station['faultChargers'] == station['faultChargers']
 
 
 def test_freeze_inflight_and_safe_device_restart(server):
@@ -343,3 +384,91 @@ def test_avatar_validation_profile_and_public_image(server):
   admin = server.admin()
   assert any(u['id'] == profile['id'] for u in server.rpc('admin.users', token=admin))
   assert server.rpc('admin.users', {'query': "' OR 1=1 --"}, admin) == []
+
+
+def test_order_pages_preserve_time_order_and_skip_newer_insertions(server):
+  session = server.rpc('user.login', {'phone': '13800000001'})
+  token = session['token']
+  user_id = session['user']['id']
+  admin = server.admin()
+  with sqlite3.connect(server.directory / 'platform.db') as db:
+    db.execute(
+      "UPDATE orders SET created_at='2020-01-01T00:00:00.000Z' "
+      'WHERE id IN (SELECT id FROM orders WHERE user_id=? ORDER BY id LIMIT 4)',
+      (user_id,),
+    )
+  expected = server.rpc('admin.orders', {'userId': user_id}, admin)
+  page = server.rpc('orders.list', {'limit': 17}, token)
+  assert page['items'] == expected[:17]
+  assert page['nextCursor'] == expected[16]['id']
+  collected = page['items'][:]
+  added = reserve(server, token)
+  while page['nextCursor']:
+    page = server.rpc('orders.list', {'limit': 17, 'cursor': page['nextCursor']}, token)
+    assert 0 < len(page['items']) <= 17
+    collected.extend(page['items'])
+  assert collected == expected
+  assert len({order['id'] for order in collected}) == len(expected)
+  refreshed = server.rpc('orders.list', token=token)
+  assert len(refreshed['items']) == 30
+  assert refreshed['items'][0]['id'] == added['id']
+  active = server.rpc('orders.list', {'filter': 'active'}, token)
+  assert [order['id'] for order in active['items']] == [added['id']]
+  assert active['nextCursor'] == 0
+  paid = server.rpc('orders.list', {'filter': 'paid', 'limit': 100}, token)
+  assert paid['items'] == expected[:100]
+
+
+def test_order_page_filters_and_cursor_ownership(server):
+  token, _ = server.user()
+  other_token, _ = server.user()
+  empty = {'items': [], 'nextCursor': 0}
+  assert server.rpc('orders.list', token=token) == empty
+  cancelled = reserve(server, token)
+  server.rpc('orders.cancel', {'orderId': cancelled['id']}, token)
+  assert server.rpc('orders.list', {'filter': 'active'}, token) == empty
+  assert server.rpc('orders.list', {'filter': 'paid'}, token) == empty
+  assert len(server.rpc('orders.list', token=token)['items']) == 1
+  assert server.rpc('orders.list', {'cursor': cancelled['id']}, token) == empty
+  invalid_params = [
+    {'limit': 0},
+    {'limit': 101},
+    {'limit': 1.5},
+    {'limit': '30'},
+    {'cursor': -1},
+    {'cursor': cancelled['id']},
+    {'cursor': 2147483647},
+    {'filter': 'cancelled'},
+    {'filter': 1},
+  ]
+  for params in invalid_params:
+    assert server.rpc('orders.list', params, other_token, ok=False)['code'] == 'VALIDATION_ERROR'
+
+
+def test_admin_tables_include_all_orders_and_logs(server):
+  token, profile = server.user()
+  first = reserve(server, token)
+  server.rpc('orders.cancel', {'orderId': first['id']}, token)
+  admin = server.admin()
+  with sqlite3.connect(server.directory / 'platform.db') as db:
+    db.execute(
+      'WITH RECURSIVE numbers(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM numbers WHERE n<1005) '
+      'INSERT INTO orders(order_no,user_id,station_id,charger_id,station_name,charger_code,'
+      'charger_type,power_kw,price_cents,status,created_at,expires_at) '
+      "SELECT 'table-test-'||n,user_id,station_id,charger_id,station_name,charger_code,"
+      "charger_type,power_kw,price_cents,'cancelled',created_at,expires_at "
+      'FROM orders CROSS JOIN numbers WHERE orders.id=?',
+      (first['id'],),
+    )
+    db.execute(
+      'WITH RECURSIVE numbers(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM numbers WHERE n<205) '
+      'INSERT INTO audit_logs(actor,action,target,detail,created_at) '
+      "SELECT 'test','table-test',n,'','2026-09-07T00:00:00Z' FROM numbers"
+    )
+    order_count = db.execute('SELECT COUNT(*) FROM orders').fetchone()[0]
+    log_count = db.execute('SELECT COUNT(*) FROM audit_logs').fetchone()[0]
+  assert len(server.rpc('admin.orders', token=admin)) == order_count
+  user_orders = server.rpc('admin.orders', {'userId': profile['id']}, admin)
+  assert len(user_orders) == 1006
+  assert {order['userId'] for order in user_orders} == {profile['id']}
+  assert len(server.rpc('admin.logs', token=admin)) == log_count

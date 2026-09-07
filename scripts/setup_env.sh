@@ -14,6 +14,8 @@ apt_packages=(
   qml6-module-qtquick qml6-module-qtquick-controls qml6-module-qtquick-layouts
   qml6-module-qtquick-window qml6-module-qtquick-templates qml6-module-qtquick-nativestyle
   fonts-noto-cjk fonts-dejavu-core libgl1-mesa-dri libgl-dev libegl-dev libopengl-dev
+  libxkbcommon-dev libvulkan-dev
+  dbus xdg-desktop-portal xdg-desktop-portal-gtk
   xvfb xauth shellcheck
 )
 mode="${1:---all}"
@@ -49,8 +51,8 @@ if [[ "$mode" == --all || "$mode" == --system-only ]]; then
 fi
 
 # shellcheck source-path=SCRIPTDIR
-# shellcheck source=qt-env.sh
-source "$root_dir/scripts/qt-env.sh"
+# shellcheck source=env.sh
+source "$root_dir/scripts/env.sh"
 if [[ "$mode" != --check ]]; then
   if (( EUID == 0 )); then
     echo 'Install user tools as your normal account: scripts/setup_env.sh --tools-only' >&2

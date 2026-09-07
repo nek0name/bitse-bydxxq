@@ -1,20 +1,18 @@
-import QtQuick 2.15
-import QtQuick.Controls 2.15
-import QtQuick.Layouts 1.15
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
 
 Button {
   id: control
   property string title: ''
   property string description: ''
   property string iconName: ''
-  implicitHeight: 80
+  implicitHeight: description ? 80 : 64
   padding: Theme.cardPadding
   Accessible.name: title + (description ? '，' + description : '')
   background: Rectangle {
     radius: Theme.cardRadius
-    color: control.down ? Theme.primaryLight : Theme.card
-    border.width: control.visualFocus ? 2 : 0
-    border.color: Theme.primary
+    color: control.down || control.visualFocus ? Theme.primaryLight : Theme.card
   }
   contentItem: RowLayout {
     spacing: Theme.cardPadding

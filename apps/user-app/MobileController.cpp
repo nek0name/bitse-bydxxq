@@ -4,6 +4,7 @@
 #include <QDateTime>
 #include <QFile>
 #include <QFileDialog>
+#include <QGuiApplication>
 #include <QHash>
 #include <QImageReader>
 #include <QJsonObject>
@@ -25,7 +26,9 @@ MobileController::MobileController(QObject *parent)
   clock->start();
   m_pollTimer->setInterval(2000);
   connect(m_pollTimer, &QTimer::timeout, this, [this] {
-    if (!signedIn() || busy() || m_pollInFlight) return;
+    if (!signedIn() || busy() || m_pollInFlight
+        || QGuiApplication::applicationState() != Qt::ApplicationActive)
+      return;
     fetchActive();
     if (++m_pollCount % 6 == 0) {
       if (m_page == "home") refreshStations();
@@ -46,16 +49,13 @@ void MobileController::call(const QString &action, const QVariantMap &params,
   }
   m_api->call(
     action, QJsonObject::fromVariantMap(params),
-    [this, session, success, foreground](QJsonValue value) {
+    [this, session, success, foreground, action](QJsonValue value) {
       if (foreground) {
         --m_pending;
         emit busyChanged();
       }
       if (session != m_session) return;
-      if (!m_online) {
-        m_online = true;
-        emit onlineChanged();
-      }
+      if (m_errorAction == action) clearError();
       success(value);
     },
     [this, session, foreground, action](QString message) {
@@ -64,16 +64,8 @@ void MobileController::call(const QString &action, const QVariantMap &params,
         emit busyChanged();
       }
       if (session != m_session) return;
-      if (action == "stations.list") {
-        m_loadingStations = false;
-        emit stationsChanged();
-      }
       if (action == "orders.active") m_pollInFlight = false;
-      if (!foreground && m_online) {
-        m_online = false;
-        emit onlineChanged();
-      }
-      if (foreground) setError(message);
+      setError(message, action);
     });
 }
 
@@ -102,6 +94,7 @@ void MobileController::login(const QString &phone) {
     const auto result = value.toObject();
     setUser(result.value("user").toObject().toVariantMap());
     m_tab = "home";
+    emit tabChanged();
     m_backStack.clear();
     setPage("home");
     if (m_presets.isEmpty())
@@ -124,8 +117,16 @@ void MobileController::logout() {
   ++m_orderRevision;
   m_pollTimer->stop();
   m_pollInFlight = false;
+  m_loadingStations = false;
+  emit loadingStationsChanged();
   m_user.clear();
-  m_orders.clear();
+  m_orders.replace({});
+  ++m_ordersRequest;
+  m_loadingOrders = false;
+  m_nextOrderCursor = 0;
+  m_orderFilter = "all";
+  m_ordersLoaded = false;
+  m_orderScrollPosition = 0;
   m_activeOrder.clear();
   m_viewedOrder.clear();
   m_rechargeKey.clear();
@@ -148,13 +149,15 @@ void MobileController::setPage(const QString &page, bool push) {
 }
 
 void MobileController::selectTab(const QString &tab) {
-  if (!signedIn() || busy()) return;
-  m_tab = tab;
+  if (!signedIn() || busy() || m_page == tab) return;
+  if (m_tab != tab) {
+    m_tab = tab;
+    emit tabChanged();
+  }
   m_backStack.clear();
   setPage(tab);
-  emit pageChanged();
   if (tab == "home") refreshStations();
-  if (tab == "orders") fetchOrders();
+  if (tab == "orders" && !m_ordersLoaded && !m_loadingOrders) fetchOrders();
   if (tab == "profile") refreshProfile();
 }
 
@@ -171,7 +174,9 @@ void MobileController::back() {
     setPage(m_tab);
 }
 
-void MobileController::setError(const QString &message) {
+void MobileController::setError(const QString &message, const QString &action) {
+  m_errorAction = action;
+  if (m_error == message) return;
   m_error = message;
   emit errorChanged();
 }
@@ -179,16 +184,22 @@ void MobileController::setError(const QString &message) {
 void MobileController::clearError() {
   if (m_error.isEmpty()) return;
   m_error.clear();
+  m_errorAction.clear();
   emit errorChanged();
 }
 
 void MobileController::setUser(const QVariantMap &user) {
+  if (m_user == user) return;
   m_user = user;
   emit userChanged();
 }
 
 void MobileController::setActiveOrder(const QVariantMap &order) {
+  if (m_activeOrder == order) return;
   const QString previousStatus = m_activeOrder.value("status").toString();
+  if (previousStatus != order.value("status").toString()
+      || m_activeOrder.value("id") != order.value("id"))
+    m_ordersLoaded = false;
   m_activeOrder = order;
   emit activeOrderChanged();
   emit reservationRemainingChanged();
@@ -198,8 +209,10 @@ void MobileController::setActiveOrder(const QVariantMap &order) {
   }
   if (previousStatus == "charging"
       && order.value("status") == "pending_payment") {
-    emit notification("充电已结束，请结算");
-    if (m_page == "charge") setPage("settlement");
+    if (m_page == "charge")
+      setPage("settlement");
+    else if (m_page != "settlement")
+      emit notification("充电已结束，请结算");
   }
 }
 
@@ -255,7 +268,6 @@ void MobileController::geocode(const QString &address) {
          emit locationChanged();
          back();
          refreshStations();
-         emit notification("当前位置已更新");
        });
 }
 
@@ -265,17 +277,28 @@ void MobileController::refreshStations() {
   params.insert("sort", m_sort);
   params.insert("fastOnly", m_fastOnly);
   const int request = ++m_stationRequest;
+  const int session = m_session;
   m_loadingStations = true;
-  emit stationsChanged();
-  call(
-    "stations.list", params,
-    [this, request](const QJsonValue &value) {
-      if (request != m_stationRequest) return;
-      m_stations = value.toVariant().toList();
+  emit loadingStationsChanged();
+  m_api->call(
+    "stations.list", QJsonObject::fromVariantMap(params),
+    [this, request, session](const QJsonValue &value) {
+      if (request != m_stationRequest || session != m_session) return;
+      if (m_errorAction == "stations.list") clearError();
+      const auto stations = value.toVariant().toList();
+      if (m_stations != stations) {
+        m_stations = stations;
+        emit stationsChanged();
+      }
       m_loadingStations = false;
-      emit stationsChanged();
+      emit loadingStationsChanged();
     },
-    false);
+    [this, request, session](QString message) {
+      if (request != m_stationRequest || session != m_session) return;
+      m_loadingStations = false;
+      setError(message, "stations.list");
+      emit loadingStationsChanged();
+    });
 }
 
 void MobileController::fetchStation(int stationId, bool foreground) {
@@ -283,13 +306,17 @@ void MobileController::fetchStation(int stationId, bool foreground) {
   params.insert("stationId", stationId);
   call(
     "stations.detail", params,
-    [this, stationId](const QJsonValue &value) {
+    [this, stationId, foreground](const QJsonValue &value) {
       if (m_selectedStation != stationId) return;
       const auto result = value.toObject();
-      m_station = result.value("station").toObject().toVariantMap();
-      m_chargers = result.value("chargers").toVariant().toList();
-      emit stationChanged();
-      if (m_page == "home") setPage("station", true);
+      const auto station = result.value("station").toObject().toVariantMap();
+      const auto chargers = result.value("chargers").toVariant().toList();
+      if (station != m_station || chargers != m_chargers) {
+        m_station = station;
+        m_chargers = chargers;
+        emit stationChanged();
+      }
+      if (foreground && m_page == "home") setPage("station", true);
     },
     foreground);
 }
@@ -337,8 +364,6 @@ void MobileController::fetchActive(bool recover, std::function<void()> empty) {
         const auto status = order.value("status").toString();
         if (status == "charging" || status == "pending_payment")
           emit unfinishedOrder("有未完成的充电订单，请先结算");
-        else
-          emit notification("预约已恢复");
       }
     },
     recover);
@@ -363,7 +388,6 @@ void MobileController::reserve(int chargerId) {
            m_reservationKey.clear();
            setPage("charge", true);
            refreshStations();
-           emit notification("预约成功");
          });
   });
 }
@@ -378,7 +402,7 @@ void MobileController::orderAction(const QString &action) {
   if (busy() || m_activeOrder.isEmpty()) return;
   const int orderId = m_activeOrder.value("id").toInt();
   ++m_orderRevision;
-  call(action, {{"orderId", orderId}}, [this, action](const QJsonValue &value) {
+  call(action, {{"orderId", orderId}}, [this](const QJsonValue &value) {
     const auto order = value.toObject().toVariantMap();
     const QString status = order.value("status").toString();
     if (status == "paid" || status == "cancelled") {
@@ -389,11 +413,9 @@ void MobileController::orderAction(const QString &action) {
       refreshProfile();
       fetchOrders();
       refreshStations();
-      emit notification(status == "paid" ? "支付成功" : "预约已取消");
     } else {
       setActiveOrder(order);
       setPage(status == "pending_payment" ? "settlement" : "charge");
-      if (action == "orders.start") emit notification("已开始充电");
     }
   });
 }
@@ -403,14 +425,53 @@ void MobileController::cancelReservation() { orderAction("orders.cancel"); }
 void MobileController::stopCharging() { orderAction("orders.stop"); }
 void MobileController::settle() { orderAction("orders.settle"); }
 
-void MobileController::fetchOrders() {
-  call(
-    "orders.list", {},
-    [this](const QJsonValue &value) {
-      m_orders = value.toVariant().toList();
+void MobileController::fetchOrders(bool append) {
+  if (!signedIn() || (m_loadingOrders && append)) return;
+  const int request = ++m_ordersRequest;
+  const int session = m_session;
+  m_loadingOrders = true;
+  m_appendingOrders = append;
+  emit ordersChanged();
+  m_api->call(
+    "orders.list",
+    {{"limit", 30},
+     {"cursor", append ? m_nextOrderCursor : 0},
+     {"filter", m_orderFilter}},
+    [this, request, session, append](QJsonValue value) {
+      if (request != m_ordersRequest || session != m_session) return;
+      if (m_errorAction == "orders.list") clearError();
+      const auto result = value.toObject();
+      const auto items = result.value("items").toVariant().toList();
+      if (append)
+        m_orders.append(items);
+      else
+        m_orders.replace(items);
+      m_nextOrderCursor = result.value("nextCursor").toInt();
+      m_loadingOrders = false;
+      m_ordersLoaded = true;
       emit ordersChanged();
     },
-    false);
+    [this, request, session](QString message) {
+      if (request != m_ordersRequest || session != m_session) return;
+      m_loadingOrders = false;
+      setError(message, "orders.list");
+      emit ordersChanged();
+    });
+}
+
+void MobileController::loadMoreOrders() {
+  if (hasMoreOrders() && !m_loadingOrders) fetchOrders(true);
+}
+
+void MobileController::filterOrders(const QString &filter) {
+  if (m_orderFilter == filter) return;
+  m_orderFilter = filter;
+  m_ordersLoaded = false;
+  m_orderScrollPosition = 0;
+  clearError();
+  m_orders.replace({});
+  m_nextOrderCursor = 0;
+  fetchOrders();
 }
 
 void MobileController::openOrder(int orderId) {
@@ -441,14 +502,21 @@ void MobileController::refreshProfile() {
 }
 
 void MobileController::refresh() {
+  if (m_page == "orders") {
+    if (!m_loadingOrders && !busy()) {
+      clearError();
+      fetchOrders();
+    }
+    return;
+  }
+  if (busy() || m_loadingStations) return;
   clearError();
   if (m_presets.isEmpty()) initialize();
   if (m_page == "home" || m_page == "login") refreshStations();
-  if (m_page == "station") fetchStation(m_selectedStation, true);
+  if (m_page == "station") fetchStation(m_selectedStation, false);
   if (signedIn()) {
     fetchActive();
     refreshProfile();
-    if (m_page == "orders") fetchOrders();
   }
 }
 
@@ -490,7 +558,6 @@ void MobileController::updateNickname(const QString &nickname) {
   call("user.update", {{"nickname", name}}, [this](const QJsonValue &value) {
     setUser(value.toObject().toVariantMap());
     back();
-    emit notification("个人信息已更新");
   });
 }
 
@@ -515,7 +582,6 @@ void MobileController::chooseAvatar() {
        {{"avatarBase64", QString::fromLatin1(image.readAll().toBase64())}},
        [this](const QJsonValue &value) {
          setUser(value.toObject().toVariantMap());
-         emit notification("头像已更新");
        });
 }
 
@@ -528,7 +594,6 @@ QString MobileController::avatarSource() const {
 void MobileController::openNavigation(const QVariantMap &station) {
   if (!m_hasLocation) {
     setPage("location", true);
-    emit notification("请先选择当前位置");
     return;
   }
   if (station.isEmpty()) return;

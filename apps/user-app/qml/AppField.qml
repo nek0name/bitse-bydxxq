@@ -1,5 +1,5 @@
-import QtQuick 2.15
-import QtQuick.Controls 2.15
+import QtQuick
+import QtQuick.Controls
 
 TextField {
   id: control
@@ -15,8 +15,14 @@ TextField {
   Accessible.name: placeholderText
   background: Rectangle {
     color: control.enabled ? Theme.card : Theme.disabled
-    radius: Theme.cardRadius
-    border.color: control.activeFocus ? Theme.primary : Theme.border
-    border.width: control.activeFocus ? 2 : 1
+    radius: 8
+    Rectangle {
+      anchors.left: parent.left
+      anchors.right: parent.right
+      anchors.bottom: parent.bottom
+      height: 2
+      color: Theme.primary
+      visible: control.activeFocus
+    }
   }
 }

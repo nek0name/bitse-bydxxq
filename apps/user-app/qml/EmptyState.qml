@@ -1,4 +1,4 @@
-import QtQuick 2.15
+import QtQuick
 
 Column {
   property string title: '这里还没有内容'

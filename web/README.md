@@ -13,19 +13,17 @@ pnpm --dir web build
 
 统一后端直接提供 `web/dist`。开发时先启动默认 8080 后端，再运行
 `pnpm --dir web dev`，Vite 会代理 `/api` 到后端，无需另外配置跨域。
-生产环境与开发环境均没有静态演示数据回退、CDN 或外网字体。
 
 ```sh
 pnpm --dir web lint
 pnpm --dir web format:check
 pnpm --dir web validate:data
+python3 web/scripts/export_dashboard.py
 # 其他后端端口：
 pnpm --dir web validate:data http://127.0.0.1:18080/api/dashboard
 ```
 
-中心空间图以实际站点经纬度定位，点击光点或站名切换详情；明确标注“经纬度示意 ·
-无道路底图”。四个 KPI、状态分布、排名、快慢充、营收趋势、时段热力图、预测和动态
-均来自当前业务数据库聚合，不制造增长百分比。预测来源区分模型/基线和课程数据。
-公开历史数据回测结果在 `ml/reports/jiaxing/` 独立记录，不冒充当前业务预测精度。
+中心空间图以站点经纬度绘制散点，点击光点或站名切换详情。四个 KPI、状态分布、排名、快慢充、营收趋势、时段热力图、预测和动态
+均来自业务数据库聚合。预测方法与回测结果见[预测说明](../ml/README.md)。
 
-第三方实际复用与完整许可证见 `third-party/README.md`。
+第三方来源与许可见[来源说明](third-party/README.md)。

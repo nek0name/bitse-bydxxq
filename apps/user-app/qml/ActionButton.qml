@@ -1,63 +1,73 @@
-import QtQuick 2.15
-import QtQuick.Controls 2.15
-import QtQuick.Layouts 1.15
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
 
 Button {
   id: control
-  property string tone: 'primary'
+  property string variant: 'primary'
+  property bool selected: false
+  property color textColor: variant === 'primary' ? Theme.primaryForeground : selected ? Theme.primaryText : Theme.ink
   property string leadingIcon: ''
   property string trailingIcon: ''
   implicitHeight: Theme.touchSize
-  implicitWidth: Math.max(120, contentItem.implicitWidth + leftPadding + rightPadding)
-  horizontalPadding: 16
+  implicitWidth: Math.max(Theme.touchSize, contentItem.implicitWidth + leftPadding + rightPadding)
+  horizontalPadding: variant === 'primary' ? 16 : variant === 'chip' ? 12 : 0
   verticalPadding: 8
   font.pixelSize: Theme.bodySize
-  font.weight: Font.Medium
+  font.weight: variant === 'primary' || selected ? Font.Medium : Font.Normal
   focusPolicy: Qt.StrongFocus
   Accessible.name: text
+  Accessible.selected: selected
   Accessible.onPressAction: clicked()
   contentItem: RowLayout {
     spacing: Theme.space
     AppIcon {
+      color: control.textColor
       name: control.leadingIcon
       visible: !!control.leadingIcon
-      Layout.preferredWidth: 24
-      Layout.preferredHeight: 24
+      Layout.preferredWidth: 20
+      Layout.preferredHeight: 20
     }
     AppText {
       Layout.fillWidth: true
       text: control.text
       font: control.font
-      color: {
-        if (!control.enabled)
-          return Theme.disabledText
-        return control.tone === 'primary' ? 'white' : Theme.primary
-      }
+      color: !control.enabled ? Theme.disabledText : control.variant === 'text' && (control.hovered || control.down) ? Theme.ink : control.textColor
       horizontalAlignment: Text.AlignHCenter
       verticalAlignment: Text.AlignVCenter
       elide: Text.ElideRight
     }
     AppIcon {
+      color: control.textColor
       name: control.trailingIcon
       visible: !!control.trailingIcon
-      Layout.preferredWidth: 24
-      Layout.preferredHeight: 24
+      Layout.preferredWidth: 20
+      Layout.preferredHeight: 20
     }
   }
-  background: Rectangle {
-    radius: Theme.cardRadius
-    color: {
-      if (!control.enabled)
-        return Theme.disabled
-      if (control.tone === 'primary')
-        return control.down ? Theme.primaryPressed : Theme.primary
-      if (control.down)
-        return '#d4e4d5'
-      if (control.tone === 'quiet' && !control.hovered)
+  background: Item {
+    Rectangle {
+      anchors.centerIn: parent
+      width: parent.width
+      height: control.variant === 'primary' ? parent.height : 32
+      radius: control.variant === 'primary' ? 12 : 8
+      color: {
+        if (control.variant === 'primary')
+          return !control.enabled ? Theme.disabled : control.down ? Theme.primaryPressed : Theme.primary
+        if (control.down)
+          return Theme.primarySoftPressed
+        if ((control.variant === 'chip' && control.selected) || control.hovered)
+          return Theme.primaryLight
         return 'transparent'
-      return Theme.primaryLight
+      }
     }
-    border.color: control.tone === 'primary' ? Theme.accent : Theme.primary
-    border.width: control.visualFocus ? 2 : 0
+    Rectangle {
+      anchors.bottom: parent.bottom
+      anchors.horizontalCenter: parent.horizontalCenter
+      width: parent.width - 24
+      height: 2
+      color: Theme.primary
+      visible: control.visualFocus
+    }
   }
 }

@@ -1,5 +1,6 @@
 <RCC>
   <qresource prefix="/icons">
+    <file alias="settings.svg">icons/settings.svg</file>
     <file alias="arrow-left.svg">icons/arrow-left.svg</file>
     <file alias="chevron-down.svg">icons/chevron-down.svg</file>
     <file alias="chevron-right.svg">icons/chevron-right.svg</file>
@@ -19,6 +20,7 @@
     <file alias="AppField.qml">qml/AppField.qml</file>
     <file alias="AppIcon.qml">qml/AppIcon.qml</file>
     <file alias="AppText.qml">qml/AppText.qml</file>
+    <file alias="AvailabilityBar.qml">qml/AvailabilityBar.qml</file>
     <file alias="Badge.qml">qml/Badge.qml</file>
     <file alias="ChargingPage.qml">qml/ChargingPage.qml</file>
     <file alias="EditProfilePage.qml">qml/EditProfilePage.qml</file>
@@ -31,6 +33,7 @@
     <file alias="LoginPage.qml">qml/LoginPage.qml</file>
     <file alias="Main.qml">qml/Main.qml</file>
     <file alias="MenuRow.qml">qml/MenuRow.qml</file>
+    <file alias="RollingNumber.qml">qml/RollingNumber.qml</file>
     <file alias="MoneyText.qml">qml/MoneyText.qml</file>
     <file alias="OrdersPage.qml">qml/OrdersPage.qml</file>
     <file alias="ProfilePage.qml">qml/ProfilePage.qml</file>
@@ -38,12 +41,12 @@
     <file alias="RechargePage.qml">qml/RechargePage.qml</file>
     <file alias="StationCard.qml">qml/StationCard.qml</file>
     <file alias="StationPage.qml">qml/StationPage.qml</file>
+    <file alias="SettingsPage.qml">qml/SettingsPage.qml</file>
     <file alias="Theme.qml">qml/Theme.qml</file>
     <file alias="qmldir">qml/qmldir</file>
   </qresource>
   <qresource prefix="/assets">
     <file alias="brand.svg">assets/brand.svg</file>
     <file alias="illustrations/charging-hero.svg">assets/illustrations/charging-hero.svg</file>
-    <file alias="illustrations/charging-hero.png">assets/illustrations/charging-hero.png</file>
   </qresource>
 </RCC>

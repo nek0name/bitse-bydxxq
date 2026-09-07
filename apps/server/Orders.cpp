@@ -3,43 +3,76 @@
 #include <algorithm>
 #include <cmath>
 
+namespace {
+const QString
+  orderSelect = "SELECT o.id,o.order_no AS orderNo,o.user_id AS "
+                "userId,o.station_id AS "
+                "stationId,o.station_name AS stationName,o.charger_id AS "
+                "chargerId,o.charger_code AS chargerCode,o.charger_type AS "
+                "chargerType,o.power_kw AS powerKw,o.price_cents AS "
+                "priceCents,o.status,o.created_at AS createdAt,o.expires_at AS "
+                "expiresAt,o.started_at AS startedAt,o.ended_at AS "
+                "endedAt,o.energy_wh/1000.0 AS energyKwh,o.duration_seconds AS "
+                "durationSeconds,o.amount_cents AS "
+                "amountCents,20.0+o.energy_wh/600.0 AS "
+                "soc,o.stop_reason AS "
+                "stopReason,COALESCE(w.balance_after,u.balance_cents) "
+                "AS balanceCents FROM orders o JOIN users u ON u.id=o.user_id "
+                "LEFT JOIN "
+                "wallet_transactions w ON w.order_id=o.id";
+}
+
 QJsonObject Service::order(qint64 id) {
-  auto result = db_.row(
-    "SELECT o.id,o.order_no AS orderNo,o.user_id AS userId,o.station_id AS "
-    "stationId,o.station_name AS stationName,o.charger_id AS "
-    "chargerId,o.charger_code AS chargerCode,o.charger_type AS "
-    "chargerType,o.power_kw AS powerKw,o.price_cents AS "
-    "priceCents,o.status,o.created_at AS createdAt,o.expires_at AS "
-    "expiresAt,o.started_at AS startedAt,o.ended_at AS "
-    "endedAt,o.energy_wh/1000.0 AS energyKwh,o.duration_seconds AS "
-    "durationSeconds,o.amount_cents AS amountCents,20.0+o.energy_wh/600.0 AS "
-    "soc,o.stop_reason AS stopReason,COALESCE(w.balance_after,u.balance_cents) "
-    "AS balanceCents FROM orders o JOIN users u ON u.id=o.user_id LEFT JOIN "
-    "wallet_transactions w ON w.order_id=o.id WHERE o.id=?",
-    {id});
+  auto result = db_.row(orderSelect + " WHERE o.id=?", {id});
   ensure(!result.isEmpty(), "NOT_FOUND", "订单不存在");
   return result;
 }
-QJsonArray Service::orders(const QJsonObject &p, const Principal &actor) {
-  QString sql = "SELECT id FROM orders";
+
+QJsonArray Service::orders(const QJsonObject &p) {
+  QString sql = orderSelect;
   QVariantList values;
-  if (actor.role == "user") {
-    sql += " WHERE user_id=?";
-    values.append(actor.id);
-  } else if (p.value("userId").toInt() > 0) {
-    sql += " WHERE user_id=?";
+  if (p.contains("userId")) {
+    sql += " WHERE o.user_id=?";
     values.append(integer(p, "userId"));
   }
-  sql += " ORDER BY created_at DESC,id DESC LIMIT 1000";
-  QJsonArray result;
-  for (auto row : db_.rows(sql, values))
-    result.append(order(row.toObject().value("id").toInteger()));
-  return result;
+  return db_.rows(sql + " ORDER BY o.created_at DESC,o.id DESC", values);
+}
+
+QJsonObject Service::orderPage(const QJsonObject &p, qint64 userId) {
+  const auto limit = p.contains("limit") ? integer(p, "limit", 1, 100) : 30;
+  const auto cursor = p.contains("cursor") ? integer(p, "cursor", 0) : 0;
+  const auto filter = p.contains("filter") ? requiredText(p, "filter") : "all";
+  ensure(filter == "all" || filter == "active" || filter == "paid",
+         "VALIDATION_ERROR", "订单筛选无效");
+  QString sql = orderSelect + " WHERE o.user_id=?";
+  QVariantList values{userId};
+  if (filter == "active")
+    sql += " AND o.status IN ('reserved','charging','pending_payment')";
+  else if (filter == "paid")
+    sql += " AND o.status='paid'";
+  if (cursor) {
+    const auto position = db_.row(
+      "SELECT created_at FROM orders WHERE id=? AND user_id=?",
+      {cursor, userId});
+    ensure(!position.isEmpty(), "VALIDATION_ERROR", "订单分页位置无效");
+    sql += " AND (o.created_at,o.id) < (?,?)";
+    values.append(position.value("created_at").toString());
+    values.append(cursor);
+  }
+  sql += " ORDER BY o.created_at DESC,o.id DESC LIMIT ?";
+  values.append(limit + 1);
+  auto items = db_.rows(sql, values);
+  qint64 nextCursor = 0;
+  if (items.size() > limit) {
+    items.removeLast();
+    nextCursor = items.last().toObject().value("id").toInteger();
+  }
+  return {{"items", items}, {"nextCursor", nextCursor}};
 }
 QJsonValue Service::orderAction(const QString &action, const QJsonObject &p,
                                 const Principal &actor) {
-  if (action == "orders.list" || action == "admin.orders")
-    return orders(p, actor);
+  if (action == "orders.list") return orderPage(p, actor.id);
+  if (action == "admin.orders") return orders(p);
   if (action == "orders.active") {
     auto active = db_.row("SELECT id FROM orders WHERE user_id=? AND status IN "
                           "('reserved','charging','pending_payment')",

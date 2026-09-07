@@ -7,9 +7,9 @@ const props = defineProps<{ data: KpiData }>()
 
 const items = [
   { key: 'totalChargingCount', label: '累计充电次数', unit: '次', accent: 'cyan' },
-  { key: 'totalRevenue', label: '累计营收', unit: '元', accent: 'amber' },
-  { key: 'onlineChargers', label: '在线电桩', unit: '台', accent: 'green' },
-  { key: 'registeredUsers', label: '注册用户', unit: '人', accent: 'violet' },
+  { key: 'totalRevenue', label: '累计营收', unit: '元', accent: 'blue' },
+  { key: 'onlineChargers', label: '在线电桩', unit: '台', accent: 'cyan' },
+  { key: 'registeredUsers', label: '注册用户', unit: '人', accent: 'ice' },
 ] as const
 const summaries = computed(() =>
   items.map((item) => {

@@ -61,7 +61,16 @@ def main() -> int:
             raise RuntimeError('The disposable charging service did not start')
         environment['CHARGING_SERVER_URL'] = url
         result = subprocess.run(
-          [str(args.client.resolve()), 'completeJourney', '-v1'],
+          [
+            str(args.client.resolve()),
+            'appearanceSettings',
+            'networkFeedback',
+            'incrementalOrders',
+            'pagedOrders',
+            'toastAndNumbers',
+            'completeJourney',
+            '-v1',
+          ],
           env=environment,
           timeout=60,
           check=False,

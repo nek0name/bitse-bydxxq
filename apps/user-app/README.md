@@ -1,46 +1,33 @@
 # 智充出行用户端
 
-Qt 6.2+ 的手机交互模拟客户端，运行在 Linux 桌面。`QQuickWidget` 承载 QML 页面，`QStackedWidget` 在主页面与老师要求的 `QWebEngineView` 内嵌腾讯导航之间切换。客户端通过共享 `ApiClient` 访问独立 C++ 服务，不打开 SQLite。
+Qt Quick 用户端运行在 Linux 桌面，通过共享 `ApiClient` 访问 C++ 服务。`QQuickWidget` 承载页面，`QWebEngineView` 加载腾讯驾车与步行导航。
 
-- 手机号免密登录、自动注册、修改昵称/头像和模拟充值。
-- 预设区域、腾讯地址解析、距离排序、名称/地址搜索、价格/空闲排序和仅快充筛选。
-- 预测空闲推荐、站点及电桩详情、预约/取消、充电进度、停止和钱包结算。
-- 服务端保持充电状态；重新登录恢复未完成订单并提示前往结算。
-- 历史订单与充电小票、个人信息、钱包和退出登录。
-- 腾讯内嵌导航传递选中的起终点；支持驾车、步行，后者使用移动浏览器 UA。
+支持手机号登录、个人资料与头像、模拟充值、找站与筛选、预约、充电和钱包结算。订单每页加载 30 条，支持状态筛选、下拉刷新和返回位置保留。服务端持续保存充电状态，重新登录可恢复未完成订单。
 
-`MobileController` 负责异步请求、页面状态、活动订单刷新、幂等键和错误提示。金额按整数分收发。写入操作期间禁用重复点击，过时会话及订单响应不覆盖新状态。昵称编辑使用本地草稿，后台余额刷新不会覆盖正在输入的内容。
+“我的 → 设置”调整主色、副色和明暗模式，偏好即时保存。`Appearance` 管理外观，`Theme.qml` 提供样式与尺寸，`RollingNumber.qml` 展示数值变化。电站和电桩的分段条显示可用、占用和异常状态。
 
-## 构建与测试
+## 运行与测试
 
-按仓库根目录说明安装依赖、启动 `charging-server` 后运行 `charging-user`。可使用 `CHARGING_SERVER_URL` 指定服务地址，默认 `http://127.0.0.1:8080`。
-
-构建启用 `BUILD_TESTING=ON` 时默认建立 `charging-user-flow-test`，可以用 `BUILD_MOBILE_FLOW_TESTS=OFF` 单独关闭。CTest 包含：
-
-- `mobile-qml-smoke`：在 offscreen 模式加载全部 11 个页面。
-- `mobile-flow`：自动启动随机端口、临时数据库的服务，通过 QML 按钮验证登录、精确到分的充值、昵称编辑、预约取消、充电、第二客户端订单恢复、结算、小票和退出；分别在 430×860 与 360×800 窗口运行，检查页面加载、最小点击区域、字号和金额基线，完成后销毁临时数据。
+从仓库根目录执行，安装与构建见[初始化指南](../../docs/00_初始化指南.md)：
 
 ```bash
-ctest --test-dir build/full -R 'mobile-' --output-on-failure
+bash scripts/run.sh server
+bash scripts/run.sh user
+bash scripts/test.sh -R 'mobile-'
 ```
 
-真实在线地图检查需要可用的图形会话与网络，单独运行，不作为离线 CI 的前置条件：
+`CHARGING_SERVER_URL` 指定服务地址，默认 `http://127.0.0.1:8080`。测试覆盖页面加载、完整业务流程、订单分页、主题切换和两种手机尺寸的布局。
+
+在线地图测试需要图形会话与网络：
 
 ```bash
+source scripts/env.sh
 CHARGING_SERVER_URL=http://127.0.0.1:8080 CHARGING_UI_TEST_MAP=1 \
   build/full/apps/user-app/charging-user-flow-test embeddedNavigation -v1
 ```
 
-`charging-user --smoke-test` 可直接检查页面加载；`--screenshot /tmp/mobile.png` 保存窗口截图；`--phone 13900000000 --page home` 用于指定演示账号与页面。截图时可以设置 `QT_SCALE_FACTOR=1` 保持一致分辨率。请对临时演示账号使用上述选项。
+`charging-user --smoke-test` 检查页面加载，`--screenshot /tmp/mobile.png` 保存截图，`--phone 13900000000 --page home` 指定演示账号与页面。设置 `CHARGING_UI_ARTIFACT_DIR=/tmp/mobile-review` 可保存测试截图。
 
-腾讯 URI 的 `referer` 参数使用应用名，符合[官方路线规划文档](https://lbs.qq.com/webApi/uriV1/uriGuide/uriWebRoute)。地址解析密钥由后端持有，不进入用户端。`assets/brand.svg` 复用仓库中的 `design/logo-final/charging-platform.svg`；图标沿用项目已有 Lucide 图标及许可。
+## 素材
 
-
-## 界面约定
-
-尺寸、配色与字体层级由 `Theme.qml` 管理，金额组件使用基线对齐，操作图标使用Lucide。
-布局参考和尺寸表见[界面设计规范](../../docs/界面设计规范.md)，生成插图的提示词与转描参数见
-[素材说明](assets/illustrations/README.md)。
-
-在线地图测试通过鼠标点击卡内导航按钮，检查整卡事件及返回操作。设置
-`CHARGING_UI_ARTIFACT_DIR=/tmp/mobile-review` 可保存按窗口尺寸分组的截图。
+布局与配色见[界面设计规范](../../docs/界面设计规范.md)。品牌图见 [brand.svg](assets/brand.svg)，插图见[素材说明](assets/illustrations/README.md)。HarmonyOS Sans SC 字体和 Lucide 图标的许可随源码保留。

@@ -1,0 +1,8 @@
+<RCC>
+  <qresource prefix="/fonts">
+    <file alias="HarmonyOS_Sans_SC_Regular.ttf">fonts/HarmonyOS_Sans_SC_Regular.ttf</file>
+    <file alias="HarmonyOS_Sans_SC_Medium.ttf">fonts/HarmonyOS_Sans_SC_Medium.ttf</file>
+    <file alias="HarmonyOS_Sans_SC_Bold.ttf">fonts/HarmonyOS_Sans_SC_Bold.ttf</file>
+    <file alias="LICENSE.txt">fonts/LICENSE.txt</file>
+  </qresource>
+</RCC>
