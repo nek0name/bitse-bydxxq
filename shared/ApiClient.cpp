@@ -66,8 +66,12 @@ void ApiClient::send(const QString &action, const QJsonObject &params,
       const auto result = doc.object();
       if (!result.value("ok").toBool()) {
         const auto err = result.value("error").toObject();
-        failure(err.value("message").toString("操作失败，请重试"),
-                err.value("code").toString("SERVER_ERROR"));
+        const auto code = err.value("code").toString("SERVER_ERROR");
+        // Do not invalidate a newer login because of a late reply sent with
+        // an older token.
+        if (code == "UNAUTHENTICATED" && token_ == sentToken)
+          emit authenticationFailed(action);
+        failure(err.value("message").toString("操作失败，请重试"), code);
         return;
       }
       const auto data = result.value("data");
