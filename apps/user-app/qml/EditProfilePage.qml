@@ -71,8 +71,8 @@ Loader {
           objectName: 'nicknameInput'
           width: parent.width
           Component.onCompleted: text = mobile.user.nickname
-          maximumLength: 24
-          placeholderText: '1 至 24 个字符'
+          maximumLength: 20
+          placeholderText: '1 至 20 个字符'
           Accessible.name: '昵称'
           onAccepted: mobile.updateNickname(text)
         }

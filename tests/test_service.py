@@ -36,6 +36,28 @@ def test_dashboard_before_first_prediction(tmp_path, seed):
     server.close()
 
 
+def test_seed_baseline_entities_and_ledger(server):
+  with sqlite3.connect(server.directory / 'platform.db') as connection:
+    for table, count in [('users', 2), ('admins', 1), ('stations', 5), ('chargers', 30)]:
+      assert connection.execute(f'SELECT COUNT(*) FROM {table}').fetchone()[0] == count
+    assert connection.execute("SELECT COUNT(*) FROM users WHERE status='active'").fetchone()[0] == 2
+    assert connection.execute('SELECT COUNT(*) FROM forecasts').fetchone()[0] == 0
+    orders = connection.execute('SELECT COUNT(*) FROM orders').fetchone()[0]
+    assert orders > 1
+    assert (
+      connection.execute('SELECT COUNT(*) FROM wallet_transactions').fetchone()[0] == orders + 2
+    )
+    assert (
+      connection.execute(
+        'SELECT COUNT(*) FROM users u WHERE u.balance_cents != '
+        '(SELECT SUM(w.amount_cents) FROM wallet_transactions w WHERE w.user_id=u.id)'
+      ).fetchone()[0]
+      == 0
+    )
+    assert connection.execute('PRAGMA integrity_check').fetchone()[0] == 'ok'
+    assert connection.execute('PRAGMA foreign_key_check').fetchall() == []
+
+
 def test_phone_login_and_role_boundaries(server):
   server.rpc('user.login', {'phone': "1' OR 1=1--"}, ok=False)
   token, user = server.user(0)
@@ -91,6 +113,10 @@ def test_full_charge_flow_price_snapshot_revenue_and_repeat_settlement(server):
   assert server.rpc('orders.active', token=token)['id'] == current['id']
   server.rpc('orders.settle', oid, token, ok=False)
   started = server.rpc('orders.start', oid, token)
+  repeated = server.rpc('orders.start', oid, token)
+  assert repeated['id'] == started['id']
+  assert repeated['status'] == 'charging'
+  assert repeated['startedAt'] == started['startedAt']
   station = server.rpc('stations.detail', {'stationId': 1})['station']
   server.rpc('admin.station.save', {**station, 'priceCents': 900}, admin)
   time.sleep(0.25)

@@ -135,3 +135,39 @@ def test_trained_service_is_current_and_has_consistent_units():
   assert result['stations'][0]['hours'][0]['time'] == '2026-09-05T13:00:00Z'
   for point in result['stations'][0]['hours']:
     assert 0 <= point['loadKw'] <= 60
+
+
+def test_baseline_ignores_sessions_outside_history_window():
+  generated = datetime(2026, 9, 5, 12, tzinfo=timezone.utc)
+  old = generated - timedelta(days=181)
+  recent = generated - timedelta(days=1)
+  payload = {
+    'generatedAt': generated.isoformat(),
+    'stations': [
+      {
+        'id': 1,
+        'name': 'History window',
+        'chargers': [{'id': 1, 'code': 'C1', 'powerKw': 60, 'status': 'idle'}],
+      }
+    ],
+    'sessions': [
+      {
+        'chargerId': 1,
+        'startedAt': recent.isoformat(),
+        'endedAt': (recent + timedelta(hours=1)).isoformat(),
+        'energyKwh': 2,
+      }
+    ],
+  }
+  expected = forecast(payload)
+  payload['sessions'].append(
+    {
+      'chargerId': 1,
+      'startedAt': old.isoformat(),
+      'endedAt': (old + timedelta(hours=1)).isoformat(),
+      'energyKwh': 60,
+    }
+  )
+  actual = forecast(payload)
+  assert actual['stations'] == expected['stations']
+  assert actual['evaluation']['baselineChargers'] == 1

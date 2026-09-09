@@ -551,8 +551,8 @@ void MobileController::recharge(const QString &amount) {
 void MobileController::updateNickname(const QString &nickname) {
   if (busy()) return;
   const auto name = nickname.trimmed();
-  if (name.isEmpty() || name.size() > 24) {
-    setError("昵称需要 1 至 24 个字符");
+  if (name.isEmpty() || name.size() > 20) {
+    setError("昵称需要 1 至 20 个字符");
     return;
   }
   call("user.update", {{"nickname", name}}, [this](const QJsonValue &value) {
