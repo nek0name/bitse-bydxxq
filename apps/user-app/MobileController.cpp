@@ -17,6 +17,10 @@
 MobileController::MobileController(QObject *parent)
     : QObject(parent), m_api(new ApiClient(this)),
       m_pollTimer(new QTimer(this)) {
+  connect(m_api, &ApiClient::authenticationFailed, this,
+          [this](const QString &) {
+            expireSession();
+          });
   auto *clock = new QTimer(this);
   clock->setInterval(1000);
   connect(clock, &QTimer::timeout, this, [this] {
@@ -186,6 +190,37 @@ void MobileController::clearError() {
   m_error.clear();
   m_errorAction.clear();
   emit errorChanged();
+}
+
+void MobileController::expireSession() {
+  if (!signedIn()) return;
+  m_api->setToken({});
+  ++m_session;
+  ++m_orderRevision;
+  m_pollTimer->stop();
+  m_pollInFlight = false;
+  m_loadingStations = false;
+  emit loadingStationsChanged();
+  m_user.clear();
+  m_orders.replace({});
+  ++m_ordersRequest;
+  m_loadingOrders = false;
+  m_nextOrderCursor = 0;
+  m_orderFilter = "all";
+  m_ordersLoaded = false;
+  m_orderScrollPosition = 0;
+  m_activeOrder.clear();
+  m_viewedOrder.clear();
+  m_rechargeKey.clear();
+  m_reservationKey.clear();
+  m_backStack.clear();
+  emit userChanged();
+  emit ordersChanged();
+  emit activeOrderChanged();
+  emit reservationRemainingChanged();
+  emit viewedOrderChanged();
+  setPage("login");
+  setError("登录已失效，请重新登录");
 }
 
 void MobileController::setUser(const QVariantMap &user) {
@@ -551,8 +586,8 @@ void MobileController::recharge(const QString &amount) {
 void MobileController::updateNickname(const QString &nickname) {
   if (busy()) return;
   const auto name = nickname.trimmed();
-  if (name.isEmpty() || name.size() > 20) {
-    setError("昵称需要 1 至 20 个字符");
+  if (name.isEmpty() || name.size() > 24) {
+    setError("昵称需要 1 至 24 个字符");
     return;
   }
   call("user.update", {{"nickname", name}}, [this](const QJsonValue &value) {

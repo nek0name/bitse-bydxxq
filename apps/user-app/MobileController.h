@@ -163,6 +163,7 @@ private:
             bool foreground = true);
   void setPage(const QString &page, bool push = false);
   void setError(const QString &message, const QString &action = {});
+  void expireSession();
   void setUser(const QVariantMap &user);
   void setActiveOrder(const QVariantMap &order);
   void fetchActive(bool recover = false, std::function<void()> empty = {});

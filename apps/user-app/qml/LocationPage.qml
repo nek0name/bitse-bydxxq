@@ -81,7 +81,7 @@ Flickable {
         height: 56
         model: mobile.presets
         textRole: 'name'
-        displayText: '选择区域'
+        displayText: currentIndex >= 0 ? currentText : '选择区域'
         leftPadding: Theme.cardPadding
         rightPadding: 56
         Accessible.name: '选择常用区域'
