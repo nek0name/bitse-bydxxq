@@ -32,6 +32,7 @@
     <file alias="LocationPage.qml">qml/LocationPage.qml</file>
     <file alias="LoginPage.qml">qml/LoginPage.qml</file>
     <file alias="Main.qml">qml/Main.qml</file>
+    <file alias="AndroidMain.qml">qml/AndroidMain.qml</file>
     <file alias="MenuRow.qml">qml/MenuRow.qml</file>
     <file alias="RollingNumber.qml">qml/RollingNumber.qml</file>
     <file alias="MoneyText.qml">qml/MoneyText.qml</file>

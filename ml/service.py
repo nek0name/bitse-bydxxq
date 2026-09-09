@@ -26,11 +26,6 @@ def forecast(payload: dict) -> dict:
   generated = parse_time(payload['generatedAt'])
   cutoff = floor_hour(generated)
   observed, rejected = aggregate_sessions(payload.get('sessions', []), cutoff)
-  history_start = cutoff - timedelta(days=180)
-  observed = {
-    cid: {time: energy for time, energy in history.items() if time >= history_start}
-    for cid, history in observed.items()
-  }
   baseline_count, trained_count = 0, 0
   output_stations = []
   # Forecast hour 1 is the next whole clock hour, strictly after generatedAt.
@@ -44,7 +39,7 @@ def forecast(payload: dict) -> dict:
         station_observed[timestamp] = station_observed.get(timestamp, 0.0) + energy
     station_threshold = None
     if station_observed:
-      first = min(station_observed)
+      first = max(min(station_observed), cutoff - timedelta(days=180))
       values = [
         station_observed.get(first + HOUR * i, 0.0) for i in range(int((cutoff - first) / HOUR))
       ]
@@ -62,7 +57,7 @@ def forecast(payload: dict) -> dict:
       peak_threshold = power * 0.7
       predicted = np.zeros(24)
       if history and power > 0:
-        first = min(history)
+        first = max(min(history), cutoff - timedelta(days=180))
         length = max(0, int((cutoff - first) / HOUR))
         times = [first + HOUR * index for index in range(length)]
         values = np.array([history.get(time, 0.0) / power for time in times])

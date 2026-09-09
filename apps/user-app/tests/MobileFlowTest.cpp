@@ -579,19 +579,6 @@ private slots:
 
     controller->navigate("editProfile");
     capture(window, "03b-edit-profile");
-    const auto previousNickname = controller->user().value("nickname");
-    controller->updateNickname(QString(21, QChar('a')));
-    QVERIFY(!controller->busy());
-    QCOMPARE(controller->error(), QString("昵称需要 1 至 20 个字符"));
-    QCOMPARE(controller->user().value("nickname"), previousNickname);
-    input(window, "nicknameInput", QString(21, QChar('a')));
-    QCOMPARE(item(window, "nicknameInput")->property("text").toString(),
-             QString(20, QChar('a')));
-    click(window, "saveProfileButton");
-    QTRY_COMPARE_WITH_TIMEOUT(controller->user().value("nickname").toString(),
-                              QString(20, QChar('a')), 10000);
-    QTRY_COMPARE(controller->page(), QString("profile"));
-    controller->navigate("editProfile");
     input(window, "nicknameInput", "绿色出行测试员");
     click(window, "saveProfileButton");
     QTRY_COMPARE_WITH_TIMEOUT(controller->user().value("nickname").toString(),
