@@ -3,7 +3,9 @@
 
 #include <QDateTime>
 #include <QFile>
+#ifndef Q_OS_ANDROID
 #include <QFileDialog>
+#endif
 #include <QGuiApplication>
 #include <QHash>
 #include <QImageReader>
@@ -597,6 +599,10 @@ void MobileController::updateNickname(const QString &nickname) {
 }
 
 void MobileController::chooseAvatar() {
+#ifdef Q_OS_ANDROID
+  setError(QStringLiteral("安卓端暂不支持文件选择，请在桌面端修改头像"));
+  return;
+#else
   if (busy()) return;
   const QString path = QFileDialog::getOpenFileName(
     nullptr, "选择头像", {}, "图片 (*.png *.jpg *.jpeg)");
@@ -618,6 +624,7 @@ void MobileController::chooseAvatar() {
        [this](const QJsonValue &value) {
          setUser(value.toObject().toVariantMap());
        });
+#endif
 }
 
 QString MobileController::avatarSource() const {

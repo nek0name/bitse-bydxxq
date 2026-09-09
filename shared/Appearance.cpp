@@ -1,19 +1,23 @@
 #include "Appearance.h"
 
 #include <QCoreApplication>
+#ifndef Q_OS_ANDROID
 #include <QDBusConnection>
 #include <QDBusMessage>
 #include <QDBusMetaType>
 #include <QDBusPendingCallWatcher>
 #include <QDBusPendingReply>
 #include <QDBusVariant>
+#endif
 #include <QFile>
 #include <QRegularExpression>
 #include <cmath>
 
 namespace {
+#ifndef Q_OS_ANDROID
 using PortalSettings = QMap<QString, QVariantMap>;
 constexpr auto appearanceGroup = "org.freedesktop.appearance";
+#endif
 
 QColor mix(const QColor &base, const QColor &target, double amount) {
   return QColor::fromRgbF(
@@ -49,6 +53,7 @@ Appearance::Appearance(QObject *parent)
       mode_(settings_.value("mode", "system").toString()),
       primaryColor_(settings_.value("primaryColor", "#6259CA").toString()),
       secondaryColor_(settings_.value("secondaryColor", "#8E86B8").toString()) {
+#ifndef Q_OS_ANDROID
   qDBusRegisterMetaType<PortalSettings>();
   qRegisterMetaType<QDBusVariant>();
   auto bus = QDBusConnection::sessionBus();
@@ -69,6 +74,7 @@ Appearance::Appearance(QObject *parent)
         reply.value().value(appearanceGroup).value("color-scheme").toUInt()
         == 1);
   });
+#endif
 }
 
 QString Appearance::mode() const { return mode_; }
@@ -109,6 +115,7 @@ void Appearance::setSystemDark(bool dark) {
   if (mode_ == "system") emit changed();
 }
 
+#ifndef Q_OS_ANDROID
 void Appearance::systemSettingChanged(const QString &group, const QString &key,
                                       const QDBusVariant &value) {
   if (group == appearanceGroup && key == "color-scheme") {
@@ -116,6 +123,7 @@ void Appearance::systemSettingChanged(const QString &group, const QString &key,
     setSystemDark(value.variant().toUInt() == 1);
   }
 }
+#endif
 
 QStringList Appearance::swatches() const {
   return {"#6259CA", "#3867A6", "#287B73", "#A64F70", "#926B37", "#8E86B8"};
