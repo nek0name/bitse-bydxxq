@@ -87,46 +87,128 @@ Rectangle {
           text: root.pageInfo.title
           font.pixelSize: Theme.titleSize
           font.weight: Font.DemiBold
-          elide: Text.ElideRight
+          wrapMode: Text.Wrap
         }
-        IconButton {
-          objectName: 'refreshButton'
-          visible: root.isTab || mobile.page === 'station'
-          iconName: 'refresh-cw'
-          label: '刷新当前页面'
-          enabled: !root.refreshing && !mobile.loadingOrders
-          onClicked: mobile.refresh()
-        }
-      }
-    }
-    Rectangle {
-      Layout.fillWidth: true
-      Layout.preferredHeight: 4
-      opacity: root.refreshing ? 1 : 0
-      color: Theme.primaryLight
-      clip: true
-      Rectangle {
-        width: parent.width * 0.3
-        height: parent.height
-        color: Theme.primary
-        SequentialAnimation on x  {
-          loops: Animation.Infinite
-          running: root.refreshing
-          NumberAnimation {
-            from: -130
-            to: root.width
-            duration: 1000
-            easing.type: Easing.InOutQuad
+        RowLayout {
+          id: locationControls
+          visible: mobile.page === 'home'
+          Layout.preferredWidth: parent.width * 0.6
+          Layout.maximumWidth: parent.width * 0.6
+          Layout.minimumWidth: Theme.touchSize * 2
+          spacing: 0
+          Button {
+            id: headerLocation
+            objectName: 'chooseLocationButton'
+            Layout.fillWidth: true
+            Layout.minimumWidth: Theme.touchSize
+            implicitWidth: Theme.touchSize
+            implicitHeight: Theme.touchSize
+            padding: 4
+            topPadding: 0
+            bottomPadding: 0
+            leftInset: 0
+            rightInset: 0
+            topInset: 0
+            bottomInset: 0
+            Accessible.name: '当前位置：' + mobile.locationName + '，在地图上选择位置'
+            onClicked: mobile.openLocationPicker()
+            background: Rectangle {
+              radius: 12
+              color: headerLocation.down ? Theme.primaryLight : 'transparent'
+            }
+            contentItem: AppText {
+              id: locationLabel
+              text: mobile.locating ? '定位中…' : mobile.locationName
+              font.pixelSize: Theme.bodySize
+              color: Theme.primaryText
+              verticalAlignment: Text.AlignVCenter
+              horizontalAlignment: Text.AlignRight
+              wrapMode: Text.Wrap
+              maximumLineCount: 2
+              elide: Text.ElideRight
+            }
+          }
+          IconButton {
+            objectName: 'refreshLocationButton'
+            iconName: 'refresh-cw'
+            label: '刷新当前位置'
+            enabled: !mobile.locating
+            onClicked: mobile.refreshLocation()
           }
         }
       }
     }
-    Loader {
+    Item {
       id: pageLoader
       objectName: 'pageLoader'
       Layout.fillWidth: true
       Layout.fillHeight: true
-      source: root.pageInfo.source
+      clip: true
+      property bool frontIsA: true
+      readonly property var item: frontIsA ? loaderA.item : loaderB.item
+      readonly property int status: frontIsA ? loaderA.status : loaderB.status
+      readonly property bool busy: pageTransition.running
+      property var incoming: null
+      property var outgoing: null
+      function showPage() {
+        pageTransition.stop()
+        if (outgoing) outgoing.source = ''
+        outgoing = frontIsA ? loaderA : loaderB
+        incoming = frontIsA ? loaderB : loaderA
+        incoming.source = root.pageInfo.source
+        incoming.z = mobile.transitionDirection < 0 ? 0 : 1
+        outgoing.z = mobile.transitionDirection < 0 ? 1 : 0
+        incoming.x = mobile.transitionDirection < 0 ? -width * 0.25 : width
+        outgoing.x = 0
+        frontIsA = !frontIsA
+        if (mobile.transitionDirection === 0) {
+          incoming.x = 0
+          outgoing.source = ''
+          outgoing = null
+        } else {
+          pageTransition.restart()
+        }
+      }
+      Loader {
+        id: loaderA
+        width: parent.width
+        height: parent.height
+        source: 'LoginPage.qml'
+        visible: status === Loader.Ready
+        Rectangle { anchors.fill: parent; color: Theme.paper; z: -1 }
+      }
+      Loader {
+        id: loaderB
+        width: parent.width
+        height: parent.height
+        visible: status === Loader.Ready
+        Rectangle { anchors.fill: parent; color: Theme.paper; z: -1 }
+      }
+      ParallelAnimation {
+        id: pageTransition
+        NumberAnimation {
+          target: pageLoader.incoming
+          property: 'x'
+          to: 0
+          duration: 280
+          easing.type: Easing.OutCubic
+        }
+        NumberAnimation {
+          target: pageLoader.outgoing
+          property: 'x'
+          to: mobile.transitionDirection < 0 ? pageLoader.width : -pageLoader.width * 0.25
+          duration: 280
+          easing.type: Easing.OutCubic
+        }
+        onFinished: {
+          if (pageLoader.outgoing) pageLoader.outgoing.source = ''
+          pageLoader.outgoing = null
+        }
+      }
+      Connections {
+        target: mobile
+        function onPageChanged() { pageLoader.showPage() }
+      }
     }
     Rectangle {
       objectName: 'mobileBottomNav'
@@ -171,30 +253,33 @@ Rectangle {
             background: Rectangle {
               color: tabButton.down || tabButton.visualFocus ? Theme.primaryLight : 'transparent'
             }
-            contentItem: Column {
-              opacity: tabButton.enabled ? 1 : 0.5
-              spacing: Theme.microSpace
-              topPadding: Theme.space
-              Rectangle {
-                anchors.horizontalCenter: parent.horizontalCenter
-                width: 64
-                height: 32
-                radius: 16
-                color: tabButton.highlighted ? Theme.accent : 'transparent'
-                AppIcon {
-                  anchors.centerIn: parent
-                  name: tabButton.modelData.icon
-                  color: tabButton.highlighted ? Theme.surfaceDark : Theme.ink
-                  opacity: tabButton.highlighted ? 1 : 0.65
-                }
-              }
-              AppText {
+            contentItem: Item {
+              Column {
+                anchors.centerIn: parent
                 width: parent.width
-                text: tabButton.modelData.label
-                font.pixelSize: Theme.labelSize
-                font.weight: tabButton.highlighted ? Font.DemiBold : Font.Normal
-                color: tabButton.highlighted ? Theme.primaryText : Theme.muted
-                horizontalAlignment: Text.AlignHCenter
+                opacity: tabButton.enabled ? 1 : 0.5
+                spacing: Theme.microSpace
+                Rectangle {
+                  anchors.horizontalCenter: parent.horizontalCenter
+                  width: 64
+                  height: 32
+                  radius: 16
+                  color: tabButton.highlighted ? Theme.accent : 'transparent'
+                  AppIcon {
+                    anchors.centerIn: parent
+                    name: tabButton.modelData.icon
+                    color: tabButton.highlighted ? Theme.surfaceDark : Theme.ink
+                    opacity: tabButton.highlighted ? 1 : 0.65
+                  }
+                }
+                AppText {
+                  width: parent.width
+                  text: tabButton.modelData.label
+                  font.pixelSize: Theme.labelSize
+                  font.weight: tabButton.highlighted ? Font.DemiBold : Font.Normal
+                  color: tabButton.highlighted ? Theme.primaryText : Theme.muted
+                  horizontalAlignment: Text.AlignHCenter
+                }
               }
             }
           }
@@ -316,7 +401,7 @@ Rectangle {
       }
     }
     function onNotification(message) {
-      if (mobile.error.length > 0) return
+      if (mobile.nativePlatform || mobile.error.length > 0) return
       toast.message = message
       toast.open()
       toastTimer.restart()

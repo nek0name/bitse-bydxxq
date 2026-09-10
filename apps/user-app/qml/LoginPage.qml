@@ -3,98 +3,163 @@ import QtQuick.Controls
 import QtQuick.Layouts
 
 Flickable {
+  id: screen
   objectName: 'loginPage'
+  property bool compact: phone.activeFocus || Qt.inputMethod.visible || height < 480
+  property real inputProgress: compact ? 1 : 0
+  property real brandHeight: Math.min(240, height * 0.3)
+  Behavior on brandHeight {
+    NumberAnimation { duration: 300; easing.type: Easing.InOutCubic }
+  }
+  Behavior on inputProgress {
+    NumberAnimation { duration: 300; easing.type: Easing.InOutCubic }
+  }
   contentWidth: width
-  contentHeight: content.height + Theme.sectionSpace * 2
+  contentHeight: Math.max(height, form.y + form.implicitHeight)
   clip: true
   boundsBehavior: Flickable.StopAtBounds
-  Column {
-    id: content
-    x: Theme.pagePadding
-    y: Theme.sectionSpace
-    width: parent.width - Theme.pagePadding * 2
-    spacing: Theme.sectionSpace
-    RowLayout {
-      width: parent.width
-      spacing: Theme.cardPadding
-      Image {
-        source: 'qrc:/assets/brand.svg'
-        Layout.preferredWidth: 48
-        Layout.preferredHeight: 48
-        Accessible.ignored: true
-      }
-      AppText {
-        Layout.fillWidth: true
-        text: '智充出行'
-        font.pixelSize: Theme.titleSize
-        font.weight: Font.DemiBold
-      }
+  Rectangle {
+    width: parent.width
+    height: screen.brandHeight
+    color: Theme.primaryLight
+  }
+  Row {
+    id: brand
+    z: 1
+    x: (screen.width - width) / 2 * (1 - screen.inputProgress) + 24 * screen.inputProgress
+    y: (screen.brandHeight - height) / 2 * (1 - screen.inputProgress) + 24 * screen.inputProgress
+    spacing: 14
+    Image {
+      source: 'qrc:/assets/brand.svg'
+      width: 56 - 20 * screen.inputProgress
+      height: width
+      Accessible.ignored: true
     }
-    Rectangle {
-      width: parent.width
-      height: 288
-      radius: Theme.heroRadius
-      color: Theme.surfaceDark
-      Column {
-        x: Theme.cardPadding
-        y: Theme.cardPadding
-        width: parent.width - Theme.cardPadding * 2
-        spacing: Theme.space
-        AppText {
-          text: '查找附近充电站'
-          width: parent.width
-          wrapMode: Text.WordWrap
-          font.pixelSize: Theme.headlineSize
-          font.weight: Font.DemiBold
-          color: 'white'
-        }
-      }
-      HeroIllustration {
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.bottom: parent.bottom
-        anchors.margins: Theme.cardPadding
-        height: 172
-      }
+    AppText {
+      anchors.verticalCenter: parent.verticalCenter
+      text: '智充出行'
+      font.pixelSize: 32 - 8 * screen.inputProgress
+      font.weight: Font.Bold
     }
+  }
+  Rectangle {
+    id: form
+    y: (screen.brandHeight - 16) * (1 - screen.inputProgress)
+    width: parent.width
+    height: Math.max(implicitHeight, screen.height - y)
+    implicitHeight: content.y + content.height + 32
+    radius: 24 * (1 - screen.inputProgress)
+    color: Theme.card
     Column {
-      width: parent.width
-      spacing: Theme.space
+      id: content
+      x: 24
+      y: 40 + 56 * screen.inputProgress
+      width: parent.width - 48
+      spacing: 24
       AppText {
         text: '手机号登录'
-        font.pixelSize: Theme.titleSize
-        font.weight: Font.DemiBold
+        font.pixelSize: 26
+        font.weight: Font.Bold
       }
-      AppText {
-        width: parent.width
-        text: '首次登录自动注册'
-        color: Theme.muted
-        wrapMode: Text.WordWrap
-      }
-    }
-    Column {
-      width: parent.width
-      spacing: Theme.cardPadding
       AppField {
         id: phone
         objectName: 'phoneInput'
         width: parent.width
-        placeholderText: '请输入 11 位手机号'
+        height: 56
+        placeholderText: '请输入手机号'
+        leftPadding: 76
+        background: Rectangle {
+          color: Theme.paper
+          radius: 14
+          AppText {
+            x: 16
+            anchors.verticalCenter: parent.verticalCenter
+            text: '+86'
+            color: Theme.ink
+            font.pixelSize: 18
+          }
+          Rectangle {
+            x: 62
+            anchors.verticalCenter: parent.verticalCenter
+            width: 1
+            height: 24
+            color: Theme.border
+          }
+        }
         maximumLength: 11
         inputMethodHints: Qt.ImhDigitsOnly
-        validator: RegularExpressionValidator {
-          regularExpression: /[0-9]{0,11}/
-        }
-        onAccepted: mobile.login(text)
+        validator: RegularExpressionValidator { regularExpression: /[0-9]{0,11}/ }
+        onAccepted: { Qt.inputMethod.hide(); mobile.login(text) }
         Accessible.name: '手机号'
       }
       ActionButton {
         objectName: 'loginButton'
         width: parent.width
+        implicitHeight: 56
         text: mobile.busy ? '正在登录…' : '登录 / 注册'
         enabled: !mobile.busy
-        onClicked: mobile.login(phone.text)
+        onClicked: { Qt.inputMethod.hide(); mobile.login(phone.text) }
       }
+    }
+  }
+  Popup {
+    id: registration
+    objectName: 'registrationPopup'
+    parent: Overlay.overlay
+    anchors.centerIn: parent
+    width: Math.min(screen.width - 32, 400)
+    padding: 24
+    modal: true
+    closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+    property string phoneNumber: ''
+    background: Rectangle { color: Theme.card; radius: 24 }
+    Overlay.modal: Rectangle { color: Theme.overlay }
+    contentItem: Column {
+      spacing: 20
+      AppText {
+        width: parent.width
+        text: '注册新账号？'
+        font.pixelSize: Theme.titleSize
+        font.weight: Font.DemiBold
+      }
+      AppText {
+        width: parent.width
+        text: '手机号 ' + registration.phoneNumber + '\n是否注册并登录？'
+        wrapMode: Text.Wrap
+        color: Theme.muted
+        lineHeight: 1.4
+      }
+      RowLayout {
+        width: parent.width
+        spacing: 12
+        ActionButton {
+          objectName: 'cancelRegistrationButton'
+          Layout.fillWidth: true
+          Layout.preferredWidth: 1
+          text: '取消'
+          variant: 'secondary'
+          onClicked: registration.close()
+        }
+        ActionButton {
+          objectName: 'confirmRegistrationButton'
+          Layout.fillWidth: true
+          Layout.preferredWidth: 1
+          text: '注册并登录'
+          enabled: !mobile.busy
+          onClicked: {
+            registration.close()
+            mobile.confirmRegistration(registration.phoneNumber)
+          }
+        }
+      }
+    }
+  }
+  Connections {
+    target: mobile
+    function onRegistrationRequested(phoneNumber) {
+      Qt.inputMethod.hide()
+      registration.phoneNumber = phoneNumber
+      registration.open()
     }
   }
 }

@@ -13,6 +13,19 @@ QJsonObject Service::user(qint64 id) {
     "balanceCents,status,created_at AS createdAt FROM users WHERE id=?",
     {id});
   ensure(!result.isEmpty(), "NOT_FOUND", "用户不存在");
+  // Historical totals are independent of the mobile order pagination. Count
+  // completed charging sessions, including delivered energy awaiting payment.
+  // Money comes from actual wallet debits, never quoted/unpaid order amounts.
+  // The current schema has no refund operation or refund transaction kind.
+  result.insert(
+    "profileStats",
+    db_.row(
+      "SELECT COUNT(*) AS orderCount,COALESCE(SUM(energy_wh),0)/1000.0 AS "
+      "totalEnergyKwh,(SELECT -COALESCE(SUM(amount_cents),0) FROM "
+      "wallet_transactions WHERE user_id=? AND kind='charge') AS "
+      "totalSpentCents FROM orders WHERE user_id=? AND "
+      "status IN ('pending_payment','paid')",
+      {id, id}));
   return result;
 }
 QJsonValue Service::accountAction(const QString &action, const QJsonObject &p,
@@ -21,7 +34,12 @@ QJsonValue Service::accountAction(const QString &action, const QJsonObject &p,
     QString phone = requiredText(p, "phone", 11);
     ensure(QRegularExpression("^1[0-9]{10}$").match(phone).hasMatch(),
            "VALIDATION_ERROR", "请输入有效的11位手机号");
+    ensure(!p.contains("allowRegistration")
+             || p.value("allowRegistration").isBool(),
+           "VALIDATION_ERROR", "allowRegistration必须是布尔值");
     auto found = db_.row("SELECT id FROM users WHERE phone=?", {phone});
+    if (found.isEmpty() && !p.value("allowRegistration").toBool(true))
+      return QJsonObject{{"registrationRequired", true}, {"phone", phone}};
     qint64 id = found.value("id").toInteger();
     if (found.isEmpty())
       id = db_.insert(

@@ -49,7 +49,7 @@ ListView {
     radius: 12
     color: Theme.card
     z: 2
-    visible: screen.count > 0 && (mobile.refreshingOrders || screen.dragging && screen.pullDistance > 8)
+    visible: mobile.refreshingOrders || screen.dragging && screen.pullDistance > 8
     AppText {
       id: refreshLabel
       anchors.centerIn: parent
@@ -57,10 +57,18 @@ ListView {
       color: Theme.muted
     }
   }
+  EmptyState {
+    parent: screen
+    width: screen.width - Theme.pagePadding * 2
+    anchors.horizontalCenter: parent.horizontalCenter
+    y: (screen.headerItem ? screen.headerItem.height : 0) + Math.max(0, (screen.height - (screen.headerItem ? screen.headerItem.height : 0) - height) / 2)
+    visible: screen.count === 0 && !mobile.loadingOrders && !mobile.error
+    title: mobile.orderFilter === 'all' ? '还没有充电订单' : '暂无此类订单'
+  }
   ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
   header: Column {
     width: screen.width - Theme.pagePadding * 2
-    topPadding: Theme.pagePadding
+    topPadding: 0
     bottomPadding: Theme.cardPadding
     Row {
       width: parent.width
@@ -109,7 +117,7 @@ ListView {
           text: card.order.stationName
           font.pixelSize: Theme.bodyLargeSize
           font.weight: Font.Medium
-          elide: Text.ElideRight
+          wrapMode: Text.Wrap
         }
         Badge {
           text: mobile.statusLabel(card.order.status)
@@ -142,14 +150,24 @@ ListView {
           Layout.fillWidth: true
           cents: card.order.amountCents
         }
-        AppText {
-          text: card.order.status === 'paid' || card.order.status === 'cancelled' ? '查看小票' : '继续处理'
-          color: Theme.primaryText
-        }
-        AppIcon {
-          name: 'chevron-right'
-          Layout.preferredWidth: 24
-          Layout.preferredHeight: 24
+        Item {
+          Layout.preferredWidth: 64
+          Layout.preferredHeight: Theme.touchSize
+          Layout.alignment: Qt.AlignRight
+          Rectangle {
+            anchors.centerIn: parent
+            width: parent.width
+            height: 32
+            radius: height / 2
+            color: Theme.primaryLight
+            AppText {
+              anchors.centerIn: parent
+              text: card.order.status === 'paid' ? '小票' : card.order.status === 'cancelled' ? '详情' : '处理'
+              color: Theme.primaryText
+              font.pixelSize: Theme.labelSize
+              font.weight: Font.Medium
+            }
+          }
         }
       }
     }
@@ -163,11 +181,6 @@ ListView {
       anchors.horizontalCenter: parent.horizontalCenter
       visible: mobile.loadingOrders && (!mobile.refreshingOrders || screen.count === 0)
       running: visible
-    }
-    EmptyState {
-      width: parent.width
-      visible: screen.count === 0 && !mobile.loadingOrders && !mobile.error
-      title: mobile.orderFilter === 'all' ? '还没有充电订单' : '暂无此类订单'
     }
     ActionButton {
       anchors.horizontalCenter: parent.horizontalCenter

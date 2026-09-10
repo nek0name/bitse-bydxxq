@@ -1,17 +1,23 @@
 #include "MobileController.h"
 #include "ApiClient.h"
 
+#include <QCryptographicHash>
 #include <QDateTime>
+#include <QDesktopServices>
 #include <QFile>
+#include <QUrlQuery>
+#include <cmath>
 #ifndef Q_OS_ANDROID
 #include <QFileDialog>
 #endif
 #include <QGuiApplication>
 #include <QHash>
 #include <QImageReader>
+#include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonValue>
 #include <QRegularExpression>
+#include <QSettings>
 #include <QTimer>
 #include <QUrl>
 #include <QUuid>
@@ -81,7 +87,7 @@ void MobileController::initialize() {
     [this](const QJsonValue &value) {
       m_presets = value.toVariant().toList();
       emit locationChanged();
-      if (!m_presets.isEmpty())
+      if (!nativePlatform() && !m_presets.isEmpty())
         chooseLocation(0);
       else
         refreshStations();
@@ -89,31 +95,99 @@ void MobileController::initialize() {
     false);
 }
 
+QString MobileController::sessionGroup() const {
+  return QString::fromLatin1(
+    QCryptographicHash::hash(m_api->baseUrl().toUtf8(),
+                             QCryptographicHash::Sha256)
+      .toHex());
+}
+
+void MobileController::saveSession() {
+  if (!m_persistSession || !signedIn() || m_api->token().isEmpty()) return;
+  QSettings settings(QSettings::IniFormat, QSettings::UserScope,
+                     "ChargingPlatform", "MobileSession");
+  settings.beginGroup(sessionGroup());
+  settings.setValue("token", m_api->token());
+  settings.setValue("user", QJsonDocument(QJsonObject::fromVariantMap(m_user))
+                              .toJson(QJsonDocument::Compact));
+  settings.sync();
+  QFile::setPermissions(settings.fileName(),
+                        QFile::ReadOwner | QFile::WriteOwner);
+}
+
+void MobileController::clearSavedSession() {
+  if (!m_persistSession) return;
+  QSettings settings(QSettings::IniFormat, QSettings::UserScope,
+                     "ChargingPlatform", "MobileSession");
+  settings.remove(sessionGroup());
+  settings.sync();
+}
+
+void MobileController::restoreSession() {
+  if (m_persistSession) return;
+  m_persistSession = true;
+  QSettings settings(QSettings::IniFormat, QSettings::UserScope,
+                     "ChargingPlatform", "MobileSession");
+  settings.beginGroup(sessionGroup());
+  const auto token = settings.value("token").toString();
+  const auto user = QJsonDocument::fromJson(
+                      settings.value("user").toByteArray())
+                      .object()
+                      .toVariantMap();
+  if (token.isEmpty() || user.isEmpty()) return;
+  m_api->setToken(token);
+  setUser(user);
+  setPage("home");
+  m_pollTimer->start();
+  // A network failure keeps the local session for retry. Only an explicit
+  // authentication failure revokes it; the server remains authoritative.
+  call("user.me", {}, [this](QJsonValue value) {
+    setUser(value.toObject().toVariantMap());
+    fetchActive(true);
+  });
+}
+
 void MobileController::login(const QString &phone) {
+  performLogin(phone, false);
+}
+
+void MobileController::confirmRegistration(const QString &phone) {
+  performLogin(phone, true);
+}
+
+void MobileController::performLogin(const QString &phone,
+                                    bool allowRegistration) {
   if (busy()) return;
   const QString number = phone.trimmed();
   if (!QRegularExpression("^1[0-9]{10}$").match(number).hasMatch()) {
     setError("请输入有效的 11 位手机号");
     return;
   }
-  call("user.login", {{"phone", number}}, [this](const QJsonValue &value) {
-    const auto result = value.toObject();
-    setUser(result.value("user").toObject().toVariantMap());
-    m_tab = "home";
-    emit tabChanged();
-    m_backStack.clear();
-    setPage("home");
-    if (m_presets.isEmpty())
-      initialize();
-    else
-      refreshStations();
-    fetchActive(true);
-    m_pollTimer->start();
-  });
+  call("user.login",
+       {{"phone", number}, {"allowRegistration", allowRegistration}},
+       [this, number](const QJsonValue &value) {
+         const auto result = value.toObject();
+         if (result.value("registrationRequired").toBool()) {
+           emit registrationRequested(number);
+           return;
+         }
+         setUser(result.value("user").toObject().toVariantMap());
+         m_tab = "home";
+         emit tabChanged();
+         m_backStack.clear();
+         setPage("home");
+         if (m_presets.isEmpty())
+           initialize();
+         else
+           refreshStations();
+         fetchActive(true);
+         m_pollTimer->start();
+       });
 }
 
 void MobileController::logout() {
   if (busy()) return;
+  clearSavedSession();
   // Send revocation with the current token, then clear the local session even
   // if connectivity has been lost. An old reply cannot clear a newer login.
   m_api->call(
@@ -148,6 +222,7 @@ void MobileController::logout() {
 
 void MobileController::setPage(const QString &page, bool push) {
   if (m_page == page) return;
+  m_transitionDirection = m_returning ? -1 : (push ? 1 : 0);
   if (push) m_backStack.append(m_page);
   m_page = page;
   clearError();
@@ -174,10 +249,26 @@ void MobileController::navigate(const QString &page) {
 
 void MobileController::back() {
   if (busy()) return;
+  m_returning = true;
   if (!m_backStack.isEmpty())
     setPage(m_backStack.takeLast());
   else
     setPage(m_tab);
+  m_returning = false;
+}
+
+bool MobileController::handleSystemBack() {
+  if (busy()) return true;
+  if (!signedIn()) return false;
+  if (!m_backStack.isEmpty() || m_page != m_tab) {
+    back();
+    return true;
+  }
+  if (m_tab != "home") {
+    selectTab("home");
+    return true;
+  }
+  return false;
 }
 
 void MobileController::setError(const QString &message, const QString &action) {
@@ -195,6 +286,7 @@ void MobileController::clearError() {
 }
 
 void MobileController::expireSession() {
+  clearSavedSession();
   if (!signedIn()) return;
   m_api->setToken({});
   ++m_session;
@@ -228,6 +320,7 @@ void MobileController::expireSession() {
 void MobileController::setUser(const QVariantMap &user) {
   if (m_user == user) return;
   m_user = user;
+  saveSession();
   emit userChanged();
 }
 
@@ -276,6 +369,65 @@ void MobileController::setFastOnly(bool value) {
 QVariantMap MobileController::locationParams() const {
   if (!m_hasLocation) return {};
   return {{"latitude", m_latitude}, {"longitude", m_longitude}};
+}
+
+void MobileController::refreshLocation() {
+  if (m_locating) return;
+  if (!nativePlatform()) {
+    navigate("location");
+    return;
+  }
+  m_locating = true;
+  emit locationChanged();
+  emit systemLocationRequested();
+}
+
+void MobileController::openLocationPicker() {
+  if (!nativePlatform()) {
+    navigate("location");
+    return;
+  }
+  m_locating = false;
+  emit locationChanged();
+  emit locationPickerRequested(m_latitude, m_longitude, m_hasLocation);
+}
+
+void MobileController::applySystemLocation(double latitude, double longitude,
+                                           const QString &name) {
+  m_locating = false;
+  if (!std::isfinite(latitude) || !std::isfinite(longitude)
+      || std::abs(latitude) > 90 || std::abs(longitude) > 180) {
+    locationFailed("定位返回了无效坐标，请重试");
+    return;
+  }
+  m_latitude = latitude;
+  m_longitude = longitude;
+  m_hasLocation = true;
+  m_locationName = name;
+  clearError();
+  emit locationChanged();
+  refreshStations();
+}
+
+void MobileController::locationFailed(const QString &message) {
+  m_locating = false;
+  emit locationChanged();
+  emit notification(message);
+}
+
+void MobileController::uploadAvatar(const QString &base64) {
+  if (busy()) return;
+  const auto bytes = QByteArray::fromBase64(base64.toLatin1());
+  if (bytes.isEmpty() || bytes.size() > 2 * 1024 * 1024
+      || QImage::fromData(bytes).isNull()) {
+    setError("头像图片无效或超过 2 MB，请重新选择");
+    return;
+  }
+  call("user.update", {{"avatarBase64", base64}},
+       [this](const QJsonValue &value) {
+         setUser(value.toObject().toVariantMap());
+         emit notification("头像已更新");
+       });
 }
 
 void MobileController::chooseLocation(int index) {
@@ -600,7 +752,7 @@ void MobileController::updateNickname(const QString &nickname) {
 
 void MobileController::chooseAvatar() {
 #ifdef Q_OS_ANDROID
-  setError(QStringLiteral("安卓端暂不支持文件选择，请在桌面端修改头像"));
+  navigate("editProfile");
   return;
 #else
   if (busy()) return;
@@ -634,12 +786,48 @@ QString MobileController::avatarSource() const {
 }
 
 void MobileController::openNavigation(const QVariantMap &station) {
+#ifdef Q_OS_ANDROID
+  bool latitudeOk = false, longitudeOk = false;
+  const double latitude = station.value("latitude").toDouble(&latitudeOk);
+  const double longitude = station.value("longitude").toDouble(&longitudeOk);
+  if (!latitudeOk || !longitudeOk || !std::isfinite(latitude)
+      || !std::isfinite(longitude) || std::abs(latitude) > 90
+      || std::abs(longitude) > 180) {
+    setError("站点坐标不可用，无法导航");
+    return;
+  }
+  const QString lat = QString::number(latitude, 'f', 6);
+  const QString lon = QString::number(longitude, 'f', 6);
+  const QString name = station.value("name").toString();
+  QUrl nativeUrl("amapuri://route/plan/");
+  QUrlQuery nativeQuery;
+  nativeQuery.addQueryItem("sourceApplication", "chargingplatform");
+  nativeQuery.addQueryItem("dname", name);
+  nativeQuery.addQueryItem("dlat", lat);
+  nativeQuery.addQueryItem("dlon", lon);
+  // Station coordinates use GCJ-02, as do AMap's encrypted coordinates.
+  nativeQuery.addQueryItem("dev", "0");
+  nativeQuery.addQueryItem("t", "0");
+  nativeUrl.setQuery(nativeQuery);
+  if (QDesktopServices::openUrl(nativeUrl)) return;
+  QUrl webUrl("https://uri.amap.com/navigation");
+  QUrlQuery webQuery;
+  webQuery.addQueryItem("to", lon + ',' + lat + ',' + name);
+  webQuery.addQueryItem("mode", "car");
+  webQuery.addQueryItem("policy", "0");
+  webQuery.addQueryItem("src", "chargingplatform");
+  webQuery.addQueryItem("callnative", "0");
+  webUrl.setQuery(webQuery);
+  if (!QDesktopServices::openUrl(webUrl))
+    setError("无法打开地图，请安装高德地图或浏览器后重试");
+#else
   if (!m_hasLocation) {
     setPage("location", true);
     return;
   }
   if (station.isEmpty()) return;
   emit navigationRequested(station, m_locationName, m_latitude, m_longitude);
+#endif
 }
 
 QString MobileController::statusLabel(const QString &status) const {

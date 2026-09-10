@@ -6,7 +6,7 @@ Loader {
   active: mobile.signedIn
   sourceComponent: Flickable {
     contentWidth: width
-    contentHeight: content.height + Theme.pagePadding * 2
+    contentHeight: content.height + Theme.pagePadding
     boundsBehavior: Flickable.StopAtBounds
     clip: true
     ScrollBar.vertical: ScrollBar {
@@ -15,7 +15,7 @@ Loader {
     Column {
       id: content
       x: Theme.pagePadding
-      y: Theme.pagePadding
+      y: 0
       width: parent.width - Theme.pagePadding * 2
       spacing: Theme.sectionSpace
       Rectangle {

@@ -63,6 +63,8 @@ def main() -> int:
         result = subprocess.run(
           [
             str(args.client.resolve()),
+            'registrationConfirmation',
+            'persistedSessionAndBack',
             'appearanceSettings',
             'networkFeedback',
             'incrementalOrders',
@@ -72,7 +74,7 @@ def main() -> int:
             '-v1',
           ],
           env=environment,
-          timeout=60,
+          timeout=90,
           check=False,
         )
         if result.returncode:

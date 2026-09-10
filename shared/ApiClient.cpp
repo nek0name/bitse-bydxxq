@@ -7,7 +7,7 @@
 
 ApiClient::ApiClient(QObject *parent) : QObject(parent) {
   setBaseUrl(
-    qEnvironmentVariable("CHARGING_SERVER_URL", "http://127.0.0.1:8080"));
+    qEnvironmentVariable("CHARGING_SERVER_URL", CHARGING_DEFAULT_SERVER_URL));
 }
 
 void ApiClient::setBaseUrl(const QString &url) {

@@ -13,7 +13,7 @@ Flickable {
   Column {
     id: content
     x: Theme.pagePadding
-    y: Theme.pagePadding
+    y: 0
     width: parent.width - Theme.pagePadding * 2
     spacing: Theme.sectionSpace
     Rectangle {
@@ -89,7 +89,7 @@ Flickable {
         contentItem: AppText {
           text: regionPicker.displayText
           verticalAlignment: Text.AlignVCenter
-          elide: Text.ElideRight
+          wrapMode: Text.Wrap
         }
         indicator: AppIcon {
           name: 'chevron-down'

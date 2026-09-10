@@ -1,8 +1,16 @@
 if(ANDROID)
   find_package(Qt6 6.7 REQUIRED COMPONENTS Quick QuickControls2)
+  if(DEFINED ANDROID_NDK_MAJOR AND ANDROID_NDK_MAJOR LESS 26)
+    message(FATAL_ERROR
+      "Qt 6.7 Android requires NDK r26 or newer: r25 libc++ lacks std::pmr symbols and crashes at startup")
+  endif()
 
   qt_add_executable(charging-user
     main_android.cpp
+    NativeMobile.cpp
+    NativeMobile.h
+    AvatarImage.cpp
+    AvatarImage.h
     MobileController.cpp
     MobileController.h
     resources.qrc
@@ -11,6 +19,16 @@ if(ANDROID)
     ${CMAKE_CURRENT_SOURCE_DIR}/android)
   set_property(TARGET charging-user PROPERTY QT_ANDROID_MIN_SDK_VERSION 23)
   set_property(TARGET charging-user PROPERTY QT_ANDROID_TARGET_SDK_VERSION 34)
+  set_property(TARGET charging-user PROPERTY QT_ANDROID_VERSION_CODE 7)
+  set_property(TARGET charging-user PROPERTY QT_ANDROID_VERSION_NAME "1.0.6")
+  set(CHARGING_ANDROID_OPENSSL_ROOT "" CACHE PATH
+    "Path to KDAB android_openssl for HTTPS support")
+  if(CHARGING_ANDROID_OPENSSL_ROOT)
+    include("${CHARGING_ANDROID_OPENSSL_ROOT}/android_openssl.cmake")
+    add_android_openssl_libraries(charging-user)
+  elseif(CHARGING_DEFAULT_SERVER_URL MATCHES "^https://")
+    message(FATAL_ERROR "HTTPS Android builds require CHARGING_ANDROID_OPENSSL_ROOT")
+  endif()
   target_link_libraries(charging-user PRIVATE
     charging-client Qt6::Gui Qt6::Quick Qt6::QuickControls2)
 else()

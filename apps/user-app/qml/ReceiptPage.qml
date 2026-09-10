@@ -20,7 +20,7 @@ Loader {
       Column {
         id: content
         x: Theme.pagePadding
-        y: Theme.pagePadding
+        y: 0
         width: parent.width - Theme.pagePadding * 2
         spacing: Theme.cardPadding
         Rectangle {

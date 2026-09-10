@@ -49,7 +49,15 @@ class MobileFlowTest final : public QObject {
     return search(window.quickView()->rootObject());
   }
 
+  void waitForPage(UserMainWindow &window) {
+    auto *loader = item(window, "pageLoader");
+    QVERIFY(loader);
+    QTRY_VERIFY_WITH_TIMEOUT(!loader->property("busy").toBool(), 3000);
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+  }
+
   void click(UserMainWindow &window, const char *name) {
+    waitForPage(window);
     // Loader releases the previous screen with deleteLater().
     QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
     auto *button = item(window, name);
@@ -59,12 +67,14 @@ class MobileFlowTest final : public QObject {
   }
 
   void input(UserMainWindow &window, const char *name, const QString &value) {
+    waitForPage(window);
     auto *field = item(window, name);
     QVERIFY2(field, name);
     QVERIFY(field->setProperty("text", value));
   }
 
   void verifyLayout(UserMainWindow &window) {
+    waitForPage(window);
     auto *root = window.quickView()->rootObject();
     auto *loader = item(window, "pageLoader");
     QVERIFY2(loader && loader->property("status").toInt() == 1,
@@ -135,11 +145,12 @@ class MobileFlowTest final : public QObject {
   }
 
   void capture(UserMainWindow &window, const QString &name) {
+    waitForPage(window);
     if (auto *toast = item(window, "toastPopup")) {
       QMetaObject::invokeMethod(toast, "close");
       QTRY_VERIFY(!toast->property("visible").toBool());
     }
-    QTest::qWait(100);
+    QTest::qWait(350);
     verifyLayout(window);
     const QString directory = qEnvironmentVariable("CHARGING_UI_ARTIFACT_DIR");
     if (directory.isEmpty()) return;
@@ -158,6 +169,119 @@ private slots:
     Appearance::instance()->setMode("light");
     QCOMPARE(QApplication::font().family(), QString("HarmonyOS Sans SC"));
     QVERIFY(QFontDatabase::families().contains("HarmonyOS Sans SC"));
+  }
+
+  void registrationConfirmation() {
+    if (qEnvironmentVariableIsEmpty("CHARGING_SERVER_URL"))
+      QSKIP("Set CHARGING_SERVER_URL to a disposable test service");
+    UserMainWindow window;
+    window.resize(360, 800);
+    window.show();
+    auto *controller = window.controller();
+    const QString phone = "139"
+                        + QString::number(
+                            QRandomGenerator::global()->bounded(100000000))
+                            .rightJustified(8, '0');
+    QSignalSpy registration(controller,
+                            &MobileController::registrationRequested);
+    input(window, "phoneInput", phone);
+    click(window, "loginButton");
+    QTRY_COMPARE_WITH_TIMEOUT(registration.count(), 1, 10000);
+    QTRY_VERIFY(!controller->busy());
+    auto *popup = item(window, "registrationPopup");
+    QVERIFY(popup);
+    QTRY_VERIFY(popup->property("visible").toBool());
+    QCOMPARE(registration.first().first().toString(), phone);
+    QVERIFY(!controller->signedIn());
+    auto *cancel = qobject_cast<QQuickItem *>(
+      item(window, "cancelRegistrationButton"));
+    auto *confirm = qobject_cast<QQuickItem *>(
+      item(window, "confirmRegistrationButton"));
+    QVERIFY(cancel && confirm);
+    QTRY_VERIFY(cancel->width() > 48 && confirm->width() > 48);
+    const auto left = cancel->mapToScene(QPointF());
+    const auto right = confirm->mapToScene(QPointF());
+    QVERIFY(qAbs(left.y() - right.y()) < 1);
+    QVERIFY(left.x() + cancel->width() <= right.x());
+    capture(window, "01-registration-confirmation");
+    click(window, "cancelRegistrationButton");
+    QTRY_VERIFY(!popup->property("visible").toBool());
+    QVERIFY(!controller->signedIn());
+    QCOMPARE(controller->page(), QString("login"));
+    // Cancelling must not have registered the phone number.
+    click(window, "loginButton");
+    QTRY_COMPARE_WITH_TIMEOUT(registration.count(), 2, 10000);
+    QTRY_VERIFY(!controller->busy());
+    click(window, "confirmRegistrationButton");
+    QTRY_VERIFY_WITH_TIMEOUT(controller->signedIn() && !controller->busy(),
+                             10000);
+    QCOMPARE(controller->user().value("phone").toString(), phone);
+    controller->logout();
+    QTRY_VERIFY_WITH_TIMEOUT(!controller->signedIn() && !controller->busy(),
+                             10000);
+    input(window, "phoneInput", phone);
+    click(window, "loginButton");
+    QTRY_VERIFY_WITH_TIMEOUT(controller->signedIn() && !controller->busy(),
+                             10000);
+    QCOMPARE(registration.count(), 2);
+  }
+
+  void persistedSessionAndBack() {
+    if (qEnvironmentVariableIsEmpty("CHARGING_SERVER_URL"))
+      QSKIP("Set CHARGING_SERVER_URL to a disposable test service");
+    QSettings settings(QSettings::IniFormat, QSettings::UserScope,
+                       "ChargingPlatform", "MobileSession");
+    settings.clear();
+    const QString phone = "13987654321";
+    {
+      MobileController original;
+      original.restoreSession();
+      QSignalSpy registration(&original,
+                              &MobileController::registrationRequested);
+      original.login(phone);
+      QTRY_COMPARE_WITH_TIMEOUT(registration.count(), 1, 10000);
+      QVERIFY(!original.signedIn());
+      original.confirmRegistration(phone);
+      QTRY_VERIFY_WITH_TIMEOUT(original.signedIn() && !original.busy(), 10000);
+    }
+    {
+      MobileController restored;
+      restored.restoreSession();
+      QVERIFY(restored.signedIn());
+      QTRY_VERIFY_WITH_TIMEOUT(!restored.busy(), 10000);
+      QCOMPARE(restored.user().value("phone").toString(), phone);
+      QCOMPARE(restored.page(), QString("home"));
+      restored.selectTab("profile");
+      restored.navigate("settings");
+      QVERIFY(restored.handleSystemBack());
+      QCOMPARE(restored.page(), QString("profile"));
+      QVERIFY(restored.handleSystemBack());
+      QCOMPARE(restored.page(), QString("home"));
+      QVERIFY(!restored.handleSystemBack());
+      // Revoke on the server without explicitly signing out this controller.
+      auto *api = restored.findChild<ApiClient *>();
+      QVERIFY(api);
+      bool revoked = false;
+      api->call("auth.logout", {}, [&](QJsonValue) {
+        revoked = true;
+      });
+      QTRY_VERIFY_WITH_TIMEOUT(revoked, 10000);
+      restored.refresh();
+      QTRY_VERIFY_WITH_TIMEOUT(!restored.signedIn(), 10000);
+    }
+    {
+      MobileController expired;
+      expired.restoreSession();
+      QVERIFY(!expired.signedIn());
+      expired.login(phone);
+      QTRY_VERIFY_WITH_TIMEOUT(expired.signedIn() && !expired.busy(), 10000);
+      expired.logout();
+      QVERIFY(!expired.signedIn());
+    }
+    MobileController signedOut;
+    signedOut.restoreSession();
+    QVERIFY(!signedOut.signedIn());
+    QVERIFY(settings.allKeys().isEmpty());
   }
 
   void appearanceSettings() {
@@ -516,6 +640,12 @@ private slots:
     capture(window, "01-login");
     input(window, "phoneInput", phone);
     click(window, "loginButton");
+    QTRY_VERIFY_WITH_TIMEOUT(
+      item(window, "registrationPopup")
+        && item(window, "registrationPopup")->property("visible").toBool(),
+      10000);
+    QTRY_VERIFY(!controller->busy());
+    click(window, "confirmRegistrationButton");
     QTRY_VERIFY_WITH_TIMEOUT(controller->signedIn(), 10000);
     QTRY_VERIFY_WITH_TIMEOUT(!controller->busy(), 10000);
     QTRY_VERIFY_WITH_TIMEOUT(!controller->stations().isEmpty(), 10000);
@@ -573,9 +703,34 @@ private slots:
       controller->user().value("balanceCents").toLongLong(), 10001LL, 10000);
     QTRY_COMPARE(controller->page(), QString("profile"));
     capture(window, "03-profile");
-    Appearance::instance()->setMode("dark");
+    auto *themeSwitch = item(window, "profileThemeSwitch");
+    QVERIFY(themeSwitch);
+    QVERIFY(QMetaObject::invokeMethod(themeSwitch, "toggle"));
+    QVERIFY(QMetaObject::invokeMethod(themeSwitch, "toggled"));
+    QTRY_VERIFY(Appearance::instance()->dark());
     capture(window, "03-profile-dark");
     Appearance::instance()->setMode("light");
+    QTRY_COMPARE(
+      item(window, "profileStat_orderCount")->property("text").toString(),
+      QString("0"));
+    QCOMPARE(
+      item(window, "profileStat_totalEnergyKwh")->property("text").toString(),
+      QString("0.0"));
+    QCOMPARE(
+      item(window, "profileStat_totalSpentCents")->property("text").toString(),
+      QString("0.00"));
+    click(window, "profileHelpButton");
+    auto *help = item(window, "helpPopup");
+    QVERIFY(help);
+    QTRY_VERIFY(help->property("visible").toBool());
+    capture(window, "03-help");
+    QVERIFY(QMetaObject::invokeMethod(help, "close"));
+    click(window, "profileAboutButton");
+    auto *about = item(window, "aboutPopup");
+    QVERIFY(about);
+    QTRY_VERIFY(about->property("visible").toBool());
+    capture(window, "03-about");
+    QVERIFY(QMetaObject::invokeMethod(about, "close"));
 
     controller->navigate("editProfile");
     capture(window, "03b-edit-profile");
@@ -710,6 +865,7 @@ private slots:
     QTRY_VERIFY(!recovery.controller()->loadingOrders());
     QCOMPARE(recovery.controller()->orders()->rowCount(), 2);
     recovery.controller()->selectTab("profile");
+    recovery.controller()->navigate("editProfile");
     click(recovery, "logoutButton");
     click(recovery, "confirmLogoutButton");
     QTRY_VERIFY_WITH_TIMEOUT(!recovery.controller()->signedIn(), 10000);

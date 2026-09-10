@@ -1,0 +1,4 @@
+<resources>
+  <!-- Android < 30 retains native resize; Android 30+ uses animated IME insets. -->
+  <integer name="charging_soft_input_mode">16</integer>
+</resources>
