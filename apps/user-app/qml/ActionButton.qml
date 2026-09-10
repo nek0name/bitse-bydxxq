@@ -9,10 +9,17 @@ Button {
   property color textColor: variant === 'primary' ? Theme.primaryForeground : selected ? Theme.primaryText : Theme.ink
   property string leadingIcon: ''
   property string trailingIcon: ''
-  implicitHeight: Theme.touchSize
+  implicitHeight: Math.max(Theme.touchSize, contentItem.implicitHeight + topPadding + bottomPadding)
   implicitWidth: Math.max(Theme.touchSize, contentItem.implicitWidth + leftPadding + rightPadding)
-  horizontalPadding: variant === 'primary' ? 16 : variant === 'chip' ? 12 : 0
-  verticalPadding: 8
+  horizontalPadding: variant === 'primary' ? 16 : variant === 'chip' ? 8 : 0
+  leftPadding: horizontalPadding
+  rightPadding: horizontalPadding
+  topPadding: 8
+  bottomPadding: 8
+  leftInset: 0
+  rightInset: 0
+  topInset: 0
+  bottomInset: 0
   font.pixelSize: Theme.bodySize
   font.weight: variant === 'primary' || selected ? Font.Medium : Font.Normal
   focusPolicy: Qt.StrongFocus
@@ -35,7 +42,7 @@ Button {
       color: !control.enabled ? Theme.disabledText : control.variant === 'text' && (control.hovered || control.down) ? Theme.ink : control.textColor
       horizontalAlignment: Text.AlignHCenter
       verticalAlignment: Text.AlignVCenter
-      elide: Text.ElideRight
+      wrapMode: Text.Wrap
     }
     AppIcon {
       color: control.textColor
@@ -49,7 +56,7 @@ Button {
     Rectangle {
       anchors.centerIn: parent
       width: parent.width
-      height: control.variant === 'primary' ? parent.height : 32
+      height: control.variant === 'primary' ? parent.height : Math.max(32, parent.height - 16)
       radius: control.variant === 'primary' ? 12 : 8
       color: {
         if (control.variant === 'primary')

@@ -1,4 +1,4 @@
-const endpoint = process.argv[2] ?? 'http://127.0.0.1:8080/api/dashboard'
+const endpoint = process.argv[2] ?? 'https://www.u910784.nyat.app:40004/api/dashboard'
 const response = await fetch(endpoint)
 if (!response.ok) throw new Error(`统计接口返回 ${response.status}`)
 const data = await response.json()

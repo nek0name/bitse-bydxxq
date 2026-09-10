@@ -1,7 +1,9 @@
 #pragma once
 
 #include <QColor>
+#ifndef Q_OS_ANDROID
 #include <QDBusVariant>
+#endif
 #include <QObject>
 #include <QSettings>
 #include <QStringList>
@@ -36,8 +38,10 @@ signals:
   void changed();
 
 private slots:
+#ifndef Q_OS_ANDROID
   void systemSettingChanged(const QString &group, const QString &key,
                             const QDBusVariant &value);
+#endif
 
 private:
   explicit Appearance(QObject *parent);

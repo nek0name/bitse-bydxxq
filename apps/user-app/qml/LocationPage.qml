@@ -13,7 +13,7 @@ Flickable {
   Column {
     id: content
     x: Theme.pagePadding
-    y: Theme.pagePadding
+    y: 0
     width: parent.width - Theme.pagePadding * 2
     spacing: Theme.sectionSpace
     Rectangle {
@@ -81,7 +81,7 @@ Flickable {
         height: 56
         model: mobile.presets
         textRole: 'name'
-        displayText: '选择区域'
+        displayText: currentIndex >= 0 ? currentText : '选择区域'
         leftPadding: Theme.cardPadding
         rightPadding: 56
         Accessible.name: '选择常用区域'
@@ -89,7 +89,7 @@ Flickable {
         contentItem: AppText {
           text: regionPicker.displayText
           verticalAlignment: Text.AlignVCenter
-          elide: Text.ElideRight
+          wrapMode: Text.Wrap
         }
         indicator: AppIcon {
           name: 'chevron-down'

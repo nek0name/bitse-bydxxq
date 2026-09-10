@@ -42,10 +42,15 @@ private:
 
 class MobileController final : public QObject {
   Q_OBJECT
+  Q_PROPERTY(bool nativePlatform READ nativePlatform CONSTANT)
+  Q_PROPERTY(bool locating READ locating NOTIFY locationChanged)
+  Q_PROPERTY(
+    int transitionDirection READ transitionDirection NOTIFY pageChanged)
   Q_PROPERTY(QString page READ page NOTIFY pageChanged)
   Q_PROPERTY(QString tab READ tab NOTIFY tabChanged)
   Q_PROPERTY(bool signedIn READ signedIn NOTIFY userChanged)
   Q_PROPERTY(QVariantMap user READ user NOTIFY userChanged)
+  Q_PROPERTY(QVariantMap profileStats READ profileStats NOTIFY userChanged)
   Q_PROPERTY(QVariantList stations READ stations NOTIFY stationsChanged)
   Q_PROPERTY(QVariantMap station READ station NOTIFY stationChanged)
   Q_PROPERTY(QVariantList chargers READ chargers NOTIFY stationChanged)
@@ -72,10 +77,22 @@ class MobileController final : public QObject {
 
 public:
   explicit MobileController(QObject *parent = nullptr);
+  bool nativePlatform() const {
+#ifdef Q_OS_ANDROID
+    return true;
+#else
+    return false;
+#endif
+  }
+  bool locating() const { return m_locating; }
+  int transitionDirection() const { return m_transitionDirection; }
   QString page() const { return m_page; }
   QString tab() const { return m_tab; }
   bool signedIn() const { return !m_user.isEmpty(); }
   QVariantMap user() const { return m_user; }
+  QVariantMap profileStats() const {
+    return m_user.value("profileStats").toMap();
+  }
   QVariantList stations() const { return m_stations; }
   QVariantMap station() const { return m_station; }
   QVariantList chargers() const { return m_chargers; }
@@ -103,11 +120,20 @@ public:
   void setSort(const QString &value);
   void setFastOnly(bool value);
   Q_INVOKABLE void initialize();
+  void restoreSession();
   Q_INVOKABLE void login(const QString &phone);
+  Q_INVOKABLE void confirmRegistration(const QString &phone);
   Q_INVOKABLE void logout();
+  Q_INVOKABLE void refreshLocation();
+  Q_INVOKABLE void openLocationPicker();
+  void applySystemLocation(double latitude, double longitude,
+                           const QString &name);
+  void locationFailed(const QString &message);
+  Q_INVOKABLE void uploadAvatar(const QString &base64);
   Q_INVOKABLE void selectTab(const QString &tab);
   Q_INVOKABLE void navigate(const QString &page);
   Q_INVOKABLE void back();
+  Q_INVOKABLE bool handleSystemBack();
   Q_INVOKABLE void clearError();
   Q_INVOKABLE void refresh();
   Q_INVOKABLE void refreshStations();
@@ -137,6 +163,9 @@ public:
   Q_INVOKABLE QString formatTime(const QString &value) const;
 
 signals:
+  void registrationRequested(const QString &phone);
+  void systemLocationRequested();
+  void locationPickerRequested(double latitude, double longitude, bool known);
   void pageChanged();
   void tabChanged();
   void userChanged();
@@ -161,8 +190,13 @@ private:
   using Success = std::function<void(const QJsonValue &)>;
   void call(const QString &action, const QVariantMap &params, Success success,
             bool foreground = true);
+  void performLogin(const QString &phone, bool allowRegistration);
   void setPage(const QString &page, bool push = false);
   void setError(const QString &message, const QString &action = {});
+  void expireSession();
+  void saveSession();
+  void clearSavedSession();
+  QString sessionGroup() const;
   void setUser(const QVariantMap &user);
   void setActiveOrder(const QVariantMap &order);
   void fetchActive(bool recover = false, std::function<void()> empty = {});
@@ -196,11 +230,15 @@ private:
   double m_latitude = 0;
   double m_longitude = 0;
   bool m_hasLocation = false;
+  bool m_locating = false;
+  int m_transitionDirection = 0;
+  bool m_returning = false;
   QString m_query;
   QString m_sort = "distance";
   bool m_fastOnly = false;
   bool m_loadingStations = false;
   bool m_pollInFlight = false;
+  bool m_persistSession = false;
   QString m_error;
   QString m_errorAction;
   int m_pending = 0;

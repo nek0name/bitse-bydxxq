@@ -141,8 +141,12 @@ void HttpServer::process(QTcpSocket *socket) {
   }
   const auto origin = headers.value("origin");
   if (!origin.isEmpty()) {
-    auto expected = "http://" + headers.value("host");
-    if (origin != expected && origin != "http://127.0.0.1:5173"
+    const auto host = headers.value("host");
+    // TLS terminates at the reverse proxy; its original Host is preserved.
+    // Match the complete authority (including port), never an Origin prefix.
+    const bool sameHost = origin == "http://" + host
+                       || origin == "https://" + host;
+    if (!sameHost && origin != "http://127.0.0.1:5173"
         && origin != "http://localhost:5173") {
       bad(403, "来源不受允许");
       return;

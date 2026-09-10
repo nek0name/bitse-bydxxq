@@ -14,7 +14,7 @@ Loader {
       anchors.fill: parent
       anchors.bottomMargin: actionDock.height
       contentWidth: width
-      contentHeight: content.height + Theme.pagePadding * 2
+      contentHeight: content.height + Theme.pagePadding
       boundsBehavior: Flickable.StopAtBounds
       clip: true
       ScrollBar.vertical: ScrollBar {
@@ -23,7 +23,7 @@ Loader {
       Column {
         id: content
         x: Theme.pagePadding
-        y: Theme.pagePadding
+        y: 0
         width: parent.width - Theme.pagePadding * 2
         spacing: Theme.cardPadding
         Column {
@@ -48,7 +48,7 @@ Loader {
             horizontalAlignment: Text.AlignHCenter
             font.pixelSize: Theme.bodySize
             color: Theme.muted
-            elide: Text.ElideRight
+            wrapMode: Text.Wrap
           }
         }
         Item {
@@ -231,7 +231,7 @@ Loader {
       Column {
         id: actionColumn
         x: Theme.pagePadding
-        y: Theme.pagePadding
+        y: 0
         width: parent.width - Theme.pagePadding * 2
         spacing: Theme.space
         RowLayout {
@@ -308,23 +308,29 @@ Loader {
           wrapMode: Text.WordWrap
           lineHeight: 1.5
         }
-        ActionButton {
-          objectName: 'confirmOrderActionButton'
+        RowLayout {
           width: parent.width
-          text: confirmation.action === 'stop' ? '确认结束' : '确认取消'
-          onClicked: {
-            confirmation.close()
-            if (confirmation.action === 'stop')
-              mobile.stopCharging()
-            else
-              mobile.cancelReservation()
+          spacing: Theme.space
+          ActionButton {
+            Layout.fillWidth: true
+            Layout.preferredWidth: 1
+            text: confirmation.action === 'stop' ? '继续充电' : '保留预约'
+            variant: 'text'
+            onClicked: confirmation.close()
           }
-        }
-        ActionButton {
-          width: parent.width
-          text: confirmation.action === 'stop' ? '继续充电' : '保留预约'
-          variant: 'text'
-          onClicked: confirmation.close()
+          ActionButton {
+            objectName: 'confirmOrderActionButton'
+            Layout.fillWidth: true
+            Layout.preferredWidth: 1
+            text: confirmation.action === 'stop' ? '确认结束' : '确认取消'
+            onClicked: {
+              confirmation.close()
+              if (confirmation.action === 'stop')
+                mobile.stopCharging()
+              else
+                mobile.cancelReservation()
+            }
+          }
         }
       }
     }

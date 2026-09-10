@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<link rel="stylesheet" href="leaflet.css">
+<style>
+:root { --paper: #f7f7f8; --card: #fff; --ink: #242424; --muted: #60616b; --primary: #6355c7; --primaryText: #6355c7; --disabled: #c9c6d9; --border: #ddd }
+* { box-sizing: border-box }
+body { margin: 0; font: 16px system-ui, sans-serif; color: var(--ink); background: var(--paper) }
+header { height: 56px; display: flex; align-items: center; gap: 16px; padding: 0 16px; background: var(--card) }
+header button { border: 0; background: none; font-size: 18px; padding: 12px 0; color: var(--primaryText) }
+h1 { font-size: 20px; margin: 0 }
+#map { position: absolute; top: 56px; bottom: 144px; width: 100% }
+#pin { position: absolute; pointer-events: none; z-index: 600; left: 50%; top: 50%; width: 18px; height: 18px; border: 3px solid white; border-radius: 50%; background: var(--primary); box-shadow: 0 0 0 3px var(--primary); transform: translate(-50%, -50%) }
+footer { position: absolute; bottom: 0; height: 144px; width: 100%; padding: 12px 16px; background: var(--card) }
+p { font-size: 14px; margin: 0 0 12px; min-height: 36px; color: var(--muted) }
+#confirm { width: 100%; height: 48px; border: none; border-radius: 14px; color: white; background: var(--primary); font-size: 16px }
+#confirm:disabled { background: var(--disabled) }
+.leaflet-container { background: var(--paper) }
+.leaflet-control-attribution { font-size: 10px; background: var(--card) !important; color: var(--muted) }
+.leaflet-control-attribution a { color: var(--primaryText) }
+.leaflet-bar a, .leaflet-bar a:hover { background: var(--card); color: var(--ink); border-color: var(--border) }
+.leaflet-bar a.leaflet-disabled { background: var(--paper); color: var(--muted) }
+html.dark .leaflet-tile-pane { filter: invert(.9) hue-rotate(180deg) saturate(.7) }
+</style>
+<script>
+// Apply the app palette before the first paint, including custom accent colors.
+try {
+  const theme = JSON.parse(new URLSearchParams(location.search).get('theme') || '{}')
+  document.documentElement.classList.toggle('dark', theme.dark === true)
+  document.documentElement.style.colorScheme = theme.dark ? 'dark' : 'light'
+  for (const key of ['paper', 'card', 'ink', 'muted', 'primary', 'primaryText', 'border', 'disabled']) {
+    if (/^#[0-9a-f]{6}$/i.test(theme[key])) document.documentElement.style.setProperty('--' + key, theme[key])
+  }
+} catch (error) { /* Default light palette remains usable. */ }
+</script>
+</head>
+<body>
+<header><button onclick="LocationPicker.cancel()" aria-label="返回">返回</button><h1>地图选点</h1></header>
+<div id="map"><div id="pin"></div></div>
+<footer><p id="status">拖动地图或点击地图，选择当前位置</p><button id="confirm" disabled>使用此位置</button></footer>
+<script src="leaflet.js"></script>
+<script>
+const params = new URLSearchParams(location.search)
+const known = params.get('known') === 'true'
+const map = L.map('map').setView([Number(params.get('lat')), Number(params.get('lon'))], known ? 16 : 4)
+const status = document.getElementById('status')
+const confirm = document.getElementById('confirm')
+const tiles = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 19,
+  attribution: '© OpenStreetMap contributors'
+}).addTo(map)
+let loaded = false
+let selected = false
+tiles.on('tileload', () => { loaded = true; confirm.disabled = !selected })
+tiles.on('tileerror', () => { if (!loaded) status.textContent = '地图加载失败，请检查网络或返回后重试' })
+function update() {
+  selected = true
+  const point = map.getCenter()
+  status.textContent = '选中位置：' + point.lat.toFixed(5) + ', ' + point.lng.toFixed(5)
+  confirm.disabled = !loaded
+}
+map.on('dragend', update)
+map.on('click', event => { map.panTo(event.latlng, { animate: false }); update() })
+confirm.onclick = () => {
+  const point = map.getCenter().wrap()
+  LocationPicker.confirm(point.lat, point.lng)
+}
+</script>
+</body>
+</html>

@@ -24,6 +24,7 @@ signals:
   void baseUrlChanged();
   void tokenChanged();
   void failed(QString tag, QString message, QString code);
+  void authenticationFailed(QString action);
 
 private:
   void send(const QString &action, const QJsonObject &params,

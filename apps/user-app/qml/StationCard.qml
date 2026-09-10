@@ -12,7 +12,9 @@ Button {
   onClicked: mobile.openStation(stationData.id)
   background: Rectangle {
     radius: Theme.cardRadius
-    color: card.down || card.visualFocus ? Theme.primaryLight : Theme.card
+    color: card.down || card.visualFocus ? Theme.primarySoftPressed : card.highlighted ? Theme.primaryLight : Theme.card
+    border.width: card.highlighted ? 1 : 0
+    border.color: Theme.primary
   }
   contentItem: Column {
     id: info
@@ -39,14 +41,14 @@ Button {
           text: card.stationData.name
           font.pixelSize: Theme.bodyLargeSize
           font.weight: Font.Medium
-          elide: Text.ElideRight
+          wrapMode: Text.Wrap
         }
         AppText {
           width: parent.width
           text: card.stationData.address
           font.pixelSize: Theme.labelSize
           color: Theme.muted
-          elide: Text.ElideRight
+          wrapMode: Text.Wrap
         }
       }
       Button {

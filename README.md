@@ -19,13 +19,17 @@
 bash scripts/setup_env.sh
 bash scripts/build.sh
 
-# 分别在三个终端运行
-bash scripts/run.sh server
+# 用户端与管理端默认连接共用联调服务器
 bash scripts/run.sh user
 bash scripts/run.sh admin
+
+# 如需独立本地服务，在各终端显式指定本地地址
+bash scripts/run.sh server
+CHARGING_SERVER_URL=http://127.0.0.1:8080 bash scripts/run.sh user
+CHARGING_SERVER_URL=http://127.0.0.1:8080 bash scripts/run.sh admin
 ```
 
-大屏地址：http://127.0.0.1:8080。管理员：`admin / 123456`。用户输入以 1 开头的 11 位手机号自动注册，演示账号：`13800000001`、`13800000002`。
+共用服务与大屏：https://www.u910784.nyat.app:40004。管理端登录页可直接修改服务器地址；Web 开发代理默认连接同一服务。已有 CMake 构建目录需要重新配置 `-DCHARGING_DEFAULT_SERVER_URL=https://www.u910784.nyat.app:40004`。本地服务大屏为 http://127.0.0.1:8080。管理员：`admin / 123456`。用户输入以 1 开头的 11 位手机号自动注册，演示账号：`13800000001`、`13800000002`。
 
 首次启动生成五站三十桩及近 35 天模拟订单。新用户需先充值；充电默认以 60 倍速运行，预测自动生成，也可在管理端手动触发。
 
@@ -38,7 +42,7 @@ bash scripts/run.sh server --time-scale 600 --port 8081
 CHARGING_SERVER_URL=http://127.0.0.1:8081 bash scripts/run.sh user
 ```
 
-地址解析需配置腾讯地图 Key，见[初始化指南](docs/00_初始化指南.md)。
+Android 使用系统定位和地图选点，导航打开高德 App 或官方网页版；桌面端的腾讯地图地址解析配置见[初始化指南](docs/00_初始化指南.md)。移动端构建、共用服务和实测记录见 [Mac 联调环境](docs/Mac联调环境.md)。
 
 ## 目录与文档
 

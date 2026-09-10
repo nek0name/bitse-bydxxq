@@ -6,17 +6,19 @@ Loader {
   objectName: 'stationPage'
   active: mobile.station.id !== undefined
   sourceComponent: Flickable {
+  id: screen
     contentWidth: width
-    contentHeight: content.height + Theme.pagePadding * 2
-    boundsBehavior: Flickable.StopAtBounds
-    clip: true
+    contentHeight: content.height + Theme.pagePadding
+    boundsBehavior: Flickable.DragOverBounds
+    PullToRefresh { view: screen }
+  clip: true
     ScrollBar.vertical: ScrollBar {
       policy: ScrollBar.AsNeeded
     }
     Column {
       id: content
       x: Theme.pagePadding
-      y: Theme.pagePadding
+      y: 0
       width: parent.width - Theme.pagePadding * 2
       spacing: Theme.cardPadding
       Rectangle {
@@ -122,80 +124,68 @@ Loader {
         font.pixelSize: Theme.bodyLargeSize
         font.weight: Font.Medium
       }
-      Repeater {
-        model: mobile.chargers
-        delegate: Rectangle {
-          id: chargerCard
-          required property var modelData
-          objectName: 'chargerCard_' + modelData.id
-          width: content.width
-          height: chargerContent.height + Theme.cardPadding * 2
-          radius: Theme.cardRadius
-          color: Theme.card
-
-          Column {
-            id: chargerContent
-            x: Theme.cardPadding
-            y: Theme.cardPadding
-            width: parent.width - Theme.cardPadding * 2
-            spacing: Theme.controlGap
+      Column {
+        width: parent.width
+        Repeater {
+          model: mobile.chargers
+          delegate: Item {
+            id: chargerRow
+            required property var modelData
+            objectName: 'chargerCard_' + modelData.id
+            width: content.width
+            height: chargerContent.implicitHeight + Theme.controlGap * 2 + 1
             RowLayout {
+              id: chargerContent
+              x: 0
+              y: Theme.controlGap
               width: parent.width
               spacing: Theme.controlGap
-              Rectangle {
-                Layout.preferredWidth: 48
-                Layout.preferredHeight: 48
-                radius: Theme.cardRadius
-                color: Theme.primaryLight
-                AppIcon {
-                  anchors.centerIn: parent
-                  name: 'zap'
-                }
+              AppIcon {
+                name: 'zap'
+                color: chargerRow.modelData.status === 'idle' ? Theme.primary : Theme.muted
+                Layout.preferredWidth: 24
+                Layout.preferredHeight: 24
               }
               Column {
                 Layout.fillWidth: true
                 spacing: Theme.microSpace
                 AppText {
                   width: parent.width
-                  text: chargerCard.modelData.code
+                  text: chargerRow.modelData.code
                   font.pixelSize: Theme.bodyLargeSize
                   font.weight: Font.Medium
-                  elide: Text.ElideRight
+                  wrapMode: Text.Wrap
                 }
                 AppText {
                   width: parent.width
-                  text: (chargerCard.modelData.type === 'dc' ? '直流快充' : '交流慢充') + ' · ' + chargerCard.modelData.powerKw + ' kW'
+                  text: (chargerRow.modelData.type === 'dc' ? '直流快充' : '交流慢充') + ' · ' + chargerRow.modelData.powerKw + ' kW'
                   color: Theme.muted
                   font.pixelSize: Theme.labelSize
-                  elide: Text.ElideRight
+                  wrapMode: Text.Wrap
                 }
               }
               ActionButton {
-                objectName: 'reserveCharger_' + chargerCard.modelData.id
-                Layout.preferredWidth: 96
+                objectName: 'reserveCharger_' + chargerRow.modelData.id
+                Layout.preferredWidth: 80
                 variant: 'text'
                 textColor: Theme.primaryText
                 text: '预约充电'
-                visible: chargerCard.modelData.status === 'idle'
-                enabled: chargerCard.modelData.status === 'idle' && !mobile.busy
-                onClicked: mobile.reserve(Number(chargerCard.modelData.id))
+                visible: chargerRow.modelData.status === 'idle'
+                enabled: !mobile.busy
+                onClicked: mobile.reserve(Number(chargerRow.modelData.id))
               }
-            }
-            Column {
-              width: parent.width
-              spacing: Theme.microSpace
               AppText {
-                text: mobile.statusLabel(chargerCard.modelData.status)
+                visible: chargerRow.modelData.status !== 'idle'
+                text: mobile.statusLabel(chargerRow.modelData.status)
                 color: Theme.muted
                 font.pixelSize: Theme.labelSize
               }
-              AvailabilityBar {
-                objectName: 'chargerAvailability_' + chargerCard.modelData.id
-                width: parent.width
-                total: 1
-                available: chargerCard.modelData.status === 'idle' ? 1 : 0
-                faults: chargerCard.modelData.status === 'fault' || chargerCard.modelData.status === 'restarting' ? 1 : 0
-              }
+            }
+            Rectangle {
+              anchors.bottom: parent.bottom
+              width: parent.width
+              height: 1
+              color: Theme.border
             }
           }
         }

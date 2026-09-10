@@ -6,9 +6,10 @@ Flickable {
   id: screen
   objectName: 'homePage'
   contentWidth: width
-  contentHeight: content.height + Theme.pagePadding * 2
+  contentHeight: content.height + Theme.pagePadding
+  PullToRefresh { view: screen }
   clip: true
-  boundsBehavior: Flickable.StopAtBounds
+  boundsBehavior: Flickable.DragOverBounds
   readonly property var suggestion: mobile.stations.find(function (station) {
       return station.recommended
     })
@@ -18,103 +19,93 @@ Flickable {
   Column {
     id: content
     x: Theme.pagePadding
-    y: Theme.pagePadding
+    y: 0
     width: parent.width - Theme.pagePadding * 2
     spacing: Theme.cardPadding
-    Rectangle {
+    Column {
+      id: searchControls
       width: parent.width
-      height: searchControls.height + Theme.space * 2
-      radius: Theme.cardRadius
-      color: Theme.card
-      Column {
-        id: searchControls
-        x: Theme.space
-        y: Theme.space
-        width: parent.width - Theme.space * 2
-        spacing: Theme.microSpace
-        Button {
-          id: locationButton
-          objectName: 'chooseLocationButton'
-          width: parent.width
-          height: Theme.touchSize
-          padding: Theme.space
-          Accessible.name: '当前位置：' + mobile.locationName + '，选择位置'
-          onClicked: mobile.navigate('location')
-          background: Rectangle {
-            radius: Theme.cardRadius
-            color: locationButton.down || locationButton.visualFocus ? Theme.primaryLight : 'transparent'
-          }
-          contentItem: RowLayout {
-            spacing: Theme.controlGap
-            AppIcon {
-              name: 'map-pin'
-              Layout.preferredWidth: 24
-              Layout.preferredHeight: 24
-            }
-            AppText {
-              Layout.fillWidth: true
-              text: mobile.locationName
-              color: Theme.primaryText
-              font.pixelSize: Theme.bodySize
-              elide: Text.ElideRight
-            }
-            AppIcon {
-              name: 'chevron-down'
-              Layout.preferredWidth: 24
-              Layout.preferredHeight: 24
-            }
-          }
+      spacing: Theme.cardPadding
+      AppField {
+        objectName: 'stationSearchInput'
+        implicitHeight: Theme.touchSize
+        background: Rectangle { color: Theme.card; radius: 12 }
+        width: parent.width
+        placeholderText: '搜索电站名称 / 地址'
+        text: mobile.query
+        onTextEdited: {
+          mobile.query = text
+          searchDebounce.restart()
         }
-        AppField {
-          objectName: 'stationSearchInput'
+        onAccepted: {
+          searchDebounce.stop()
+          mobile.refreshStations()
+          focus = false
+        }
+        Timer {
+          id: searchDebounce
+          interval: 350
+          onTriggered: mobile.refreshStations()
+        }
+      }
+      RowLayout {
+        width: parent.width
+        spacing: Theme.space
+        Item {
+          Layout.fillWidth: true
           implicitHeight: Theme.touchSize
-          background: Rectangle { color: Theme.paper; radius: 8 }
-          width: parent.width
-          placeholderText: '搜索电站名称 / 地址'
-          text: mobile.query
-          onTextEdited: {
-            mobile.query = text
-            searchDebounce.restart()
+          Rectangle {
+            anchors.centerIn: parent
+            width: parent.width
+            height: 40
+            radius: height / 2
+            color: Theme.card
+            border.color: Theme.border
           }
-          onAccepted: {
-            searchDebounce.stop()
-            mobile.refreshStations()
-            focus = false
-          }
-          Timer {
-            id: searchDebounce
-            interval: 350
-            onTriggered: mobile.refreshStations()
-          }
-        }
-        Row {
-          width: parent.width
-          spacing: Theme.space
-          Repeater {
-            model: [{key: 'distance', text: '距离', label: '距离优先'},
-                    {key: 'price', text: '价格', label: '价格最低'},
-                    {key: 'idle', text: '空闲', label: '空闲最多'}]
-            delegate: ActionButton {
-              required property var modelData
-              objectName: 'sort_' + modelData.key
-              width: (searchControls.width - Theme.space * 3) / 4
-              text: modelData.text
-              Accessible.name: modelData.label
-              horizontalPadding: Theme.space
-              variant: 'chip'
-              selected: mobile.sort === modelData.key
-              onClicked: mobile.sort = modelData.key
+          Row {
+            anchors.fill: parent
+            anchors.leftMargin: Theme.microSpace
+            anchors.rightMargin: Theme.microSpace
+            Repeater {
+              model: [{key: 'distance', text: '距离', label: '距离优先'},
+                      {key: 'price', text: '价格', label: '价格最低'},
+                      {key: 'idle', text: '空闲', label: '空闲最多'}]
+              delegate: ActionButton {
+                id: sortButton
+                required property var modelData
+                objectName: 'sort_' + modelData.key
+                width: parent.width / 3
+                height: Theme.touchSize
+                text: modelData.text
+                Accessible.name: modelData.label
+                horizontalPadding: Theme.microSpace
+                topPadding: Theme.microSpace
+                bottomPadding: Theme.microSpace
+                variant: 'chip'
+                selected: mobile.sort === modelData.key
+                textColor: selected ? Theme.primaryForeground : Theme.muted
+                background: Item {
+                  Rectangle {
+                    anchors.centerIn: parent
+                    width: parent.width
+                    height: 32
+                    radius: height / 2
+                    color: sortButton.selected ? Theme.primary : sortButton.down ? Theme.primaryLight : 'transparent'
+                  }
+                }
+                onClicked: mobile.sort = modelData.key
+              }
             }
           }
-          ActionButton {
-            objectName: 'fastOnlyButton'
-            width: (searchControls.width - Theme.space * 3) / 4
-            text: '仅快充'
-            horizontalPadding: Theme.space
-            variant: 'chip'
-            selected: mobile.fastOnly
-            onClicked: mobile.fastOnly = !mobile.fastOnly
-          }
+        }
+        ActionButton {
+          objectName: 'fastOnlyButton'
+          Layout.preferredWidth: 64
+          text: '仅快充'
+          horizontalPadding: Theme.space
+          variant: 'chip'
+          selected: mobile.fastOnly
+          onClicked: mobile.fastOnly = !mobile.fastOnly
         }
       }
     }
@@ -146,7 +137,7 @@ Flickable {
             AppText {
               text: mobile.activeOrder.stationName
               width: parent.width
-              elide: Text.ElideRight
+              wrapMode: Text.Wrap
               font.pixelSize: Theme.labelSize
               color: Theme.amber
             }
@@ -159,23 +150,14 @@ Flickable {
         }
       }
     }
-    Column {
+    Loader {
+      objectName: 'recommendedStationLoader'
       width: parent.width
-      spacing: Theme.cardPadding
-      visible: screen.suggestion !== undefined
-      AppText {
-        text: '推荐电站'
-        font.pixelSize: Theme.bodyLargeSize
-        font.weight: Font.Medium
-      }
-      Loader {
-        objectName: 'recommendedStationLoader'
-        width: parent.width
-        active: screen.suggestion !== undefined
-        sourceComponent: StationCard {
-          stationData: screen.suggestion
-          highlighted: true
-        }
+      active: screen.suggestion !== undefined
+      visible: active
+      sourceComponent: StationCard {
+        stationData: screen.suggestion
+        highlighted: true
       }
     }
     Repeater {

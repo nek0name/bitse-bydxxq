@@ -682,6 +682,19 @@ private slots:
     QVERIFY(!table.isRowHidden(2));
   }
 
+  void serviceAddressUsesEnvironmentAndCanBeEdited() {
+    window.reset();
+    qputenv("CHARGING_SERVER_URL", "http://127.0.0.1:1");
+    window = std::make_unique<AdminMainWindow>();
+    window->show();
+    auto *address = widget<QLineEdit>("serverUrl");
+    QCOMPARE(address->text(), QString("http://127.0.0.1:1"));
+    QVERIFY(!address->isReadOnly());
+    address->setText(fixture->url());
+    QVERIFY(login());
+    QCOMPARE(fixture->unauthorized, 0);
+  }
+
   void loginRevenueAndTrend() {
     widget<QLineEdit>("adminPassword")->setText("bad-password");
     widget<QPushButton>("adminLoginButton")->click();

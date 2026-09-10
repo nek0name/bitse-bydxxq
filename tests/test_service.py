@@ -338,6 +338,25 @@ def test_http_fragmentation_validation_and_no_path_traversal(server):
   )
 
 
+def test_https_origin_behind_reverse_proxy(server):
+  authority = 'charging.example:40004'
+  for origin in ('http://' + authority, 'https://' + authority):
+    request = urllib.request.Request(
+      server.url + '/api/dashboard', headers={'Host': authority, 'Origin': origin}
+    )
+    with urllib.request.urlopen(request) as response:
+      assert response.status == 200
+      assert response.headers['Access-Control-Allow-Origin'] == origin
+      assert 'stations' in json.load(response)
+  for origin in ('https://charging.example', 'https://charging.example:40004.evil.test', 'null'):
+    request = urllib.request.Request(
+      server.url + '/api/dashboard', headers={'Host': authority, 'Origin': origin}
+    )
+    with pytest.raises(urllib.error.HTTPError) as failure:
+      urllib.request.urlopen(request)
+    assert failure.value.code == 403
+
+
 def test_empty_database_and_missing_map_configuration(tmp_path):
   server = Server(tmp_path / 'empty', seed=False)
   try:

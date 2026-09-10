@@ -7,7 +7,7 @@ Button {
   property string title: ''
   property string description: ''
   property string iconName: ''
-  implicitHeight: description ? 80 : 64
+  implicitHeight: Math.max(description ? 80 : 64, contentItem.implicitHeight + topPadding + bottomPadding)
   padding: Theme.cardPadding
   Accessible.name: title + (description ? '，' + description : '')
   background: Rectangle {
@@ -29,7 +29,7 @@ Button {
         text: control.title
         font.pixelSize: Theme.bodyLargeSize
         font.weight: Font.Medium
-        elide: Text.ElideRight
+        wrapMode: Text.Wrap
       }
       AppText {
         width: parent.width
@@ -37,7 +37,7 @@ Button {
         visible: !!control.description
         font.pixelSize: Theme.labelSize
         color: Theme.muted
-        elide: Text.ElideRight
+        wrapMode: Text.Wrap
       }
     }
     AppIcon {

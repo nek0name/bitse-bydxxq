@@ -16,6 +16,7 @@
     <file alias="zap.svg">icons/zap.svg</file>
   </qresource>
   <qresource prefix="/qml">
+    <file alias="AvatarEditor.qml">qml/AvatarEditor.qml</file>
     <file alias="ActionButton.qml">qml/ActionButton.qml</file>
     <file alias="AppField.qml">qml/AppField.qml</file>
     <file alias="AppIcon.qml">qml/AppIcon.qml</file>
@@ -31,7 +32,9 @@
     <file alias="KeyValue.qml">qml/KeyValue.qml</file>
     <file alias="LocationPage.qml">qml/LocationPage.qml</file>
     <file alias="LoginPage.qml">qml/LoginPage.qml</file>
+    <file alias="PullToRefresh.qml">qml/PullToRefresh.qml</file>
     <file alias="Main.qml">qml/Main.qml</file>
+    <file alias="AndroidMain.qml">qml/AndroidMain.qml</file>
     <file alias="MenuRow.qml">qml/MenuRow.qml</file>
     <file alias="RollingNumber.qml">qml/RollingNumber.qml</file>
     <file alias="MoneyText.qml">qml/MoneyText.qml</file>
